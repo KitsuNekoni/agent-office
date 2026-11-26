@@ -36,6 +36,18 @@ test('classify: descriptions and project names', () => {
   assert.equal(projectName('/home/alice'), '~');
   assert.equal(projectName('home-alice-git-shop42'), 'shop42');
   assert.equal(projectName('home-alice-git-api-worktrees-12'), 'api #12');
+  // macOS and Windows, paths and slugs
+  assert.equal(describeTool('Read', { file_path: 'C:\\code\\shop\\cart.ts' }), 'cart.ts');
+  assert.equal(projectName('/Users/bob/code/shop'), 'shop');
+  assert.equal(projectName('/Users/bob'), '~');
+  assert.equal(projectName('C:\\Users\\bob\\repos\\api'), 'api');
+  assert.equal(projectName('C:\\Users\\bob'), '~');
+  assert.equal(projectName('Users-bob-code-shop'), 'shop');
+  assert.equal(projectName('c-Users-bob-repos-api'), 'api');
+  // Claude slug (leading dash), and a home folder whose name contains a dash
+  assert.equal(projectName('-home-alice-projects-agent-office'), 'agent-office');
+  assert.equal(projectName('home-mary-jane-git-shop', '/home/mary-jane'), 'shop');
+  assert.equal(projectName('/home/mary-jane', '/home/mary-jane'), '~');
 });
 
 test('parseClaudeLine: tool_use, result, turn end, title, prompt', () => {
@@ -201,12 +213,13 @@ test('install-hooks: a path with a space is quoted, old entries from a moved rep
   fs.mkdirSync(bin, { recursive: true });
   fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
   fs.mkdirSync(path.join(home, '.cursor'), { recursive: true });
-  for (const f of ['install-hooks.js', 'hook.sh']) fs.copyFileSync(new URL(`../bin/${f}`, import.meta.url), path.join(bin, f));
-  fs.chmodSync(path.join(bin, 'hook.sh'), 0o755);
-  const old = '/old/path/agent-office/bin/hook.sh';
+  for (const f of ['install-hooks.js', 'hook.js']) fs.copyFileSync(new URL(`../bin/${f}`, import.meta.url), path.join(bin, f));
+  const old = '/old/path/agent-office/bin/hook.sh'; // the old shell relay from a moved repo
   fs.writeFileSync(path.join(home, '.claude', 'settings.json'), J({ hooks: { Stop: [{ hooks: [{ type: 'command', command: `${old} claude` }, { type: 'command', command: 'echo mine' }] }] } }));
   fs.writeFileSync(path.join(home, '.cursor', 'hooks.json'), J({ version: 1, hooks: { stop: [{ command: `${old} cursor` }] } }));
-  const run = (...a) => execFileSync(process.execPath, [path.join(bin, 'install-hooks.js'), ...a], { env: { ...process.env, HOME: home } });
+  const env = { ...process.env, HOME: home, USERPROFILE: home };
+  delete env.CLAUDE_CONFIG_DIR; delete env.AGENT_OFFICE_PORT;
+  const run = (...a) => execFileSync(process.execPath, [path.join(bin, 'install-hooks.js'), ...a], { env });
   const read = () => [JSON.parse(fs.readFileSync(path.join(home, '.claude', 'settings.json'), 'utf8')), JSON.parse(fs.readFileSync(path.join(home, '.cursor', 'hooks.json'), 'utf8'))];
 
   run();
@@ -215,17 +228,39 @@ test('install-hooks: a path with a space is quoted, old entries from a moved rep
   assert.ok(!cmds.some((c) => c.startsWith(old)), 'old Claude entry gone');
   assert.ok(cmds.includes('echo mine'), 'foreign hook stays');
   const mine = cmds.find((c) => c.includes('My Projects'));
-  assert.equal(mine, `'${path.join(bin, 'hook.sh')}' claude`);
-  assert.deepEqual(cu.hooks.stop.map((h) => h.command), [`'${path.join(bin, 'hook.sh')}' cursor`]);
+  assert.equal(mine, `${process.execPath} '${path.join(bin, 'hook.js')}' claude`);
+  assert.deepEqual(cu.hooks.stop.map((h) => h.command), [`${process.execPath} '${path.join(bin, 'hook.js')}' cursor`]);
   // the quoted command really runs through the shell (server is off: fails silently, Cursor gets {})
   assert.equal(execFileSync('sh', ['-c', cu.hooks.stop[0].command], { input: '{}', env: { ...process.env, AGENT_OFFICE_PORT: '1' } }).toString(), '{}\n');
 
   run(); // install again: no duplicate entries
   [cl] = read();
-  assert.equal(cl.hooks.Stop.flatMap((g) => g.hooks).filter((h) => h.command.includes('hook.sh')).length, 1);
+  assert.equal(cl.hooks.Stop.flatMap((g) => g.hooks).filter((h) => h.command.includes('hook.js')).length, 1);
+
+  run('--port', '5000'); // another port: baked into the command, replaces the old entry
+  [cl, cu] = read();
+  assert.deepEqual(cl.hooks.Stop.flatMap((g) => g.hooks).filter((h) => h.command.includes('hook.js')).map((h) => h.command), [`${process.execPath} '${path.join(bin, 'hook.js')}' claude 5000`]);
 
   run('--remove');
   [cl] = read();
   assert.deepEqual(cl.hooks.Stop.flatMap((g) => g.hooks.map((h) => h.command)), ['echo mine']);
   fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test('hook.js relays the payload to the server and answers Cursor with {}', async () => {
+  const http = await import('node:http');
+  const { execFile } = await import('node:child_process');
+  const got = [];
+  const srv = http.createServer((req, res) => { let b = ''; req.on('data', (c) => (b += c)); req.on('end', () => { got.push([req.url, b]); res.writeHead(204).end(); }); });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const port = String(srv.address().port);
+  const relay = (src) => new Promise((resolve, reject) => {
+    const c = execFile(process.execPath, [new URL('../bin/hook.js', import.meta.url).pathname, src, port], (e, out) => (e ? reject(e) : resolve(out)));
+    c.stdin.end(J({ hook_event_name: 'Stop', session_id: 's1' }));
+  });
+  assert.equal(await relay('claude'), '');
+  assert.equal(await relay('cursor'), '{}\n');
+  srv.close();
+  assert.deepEqual(got.map((g) => g[0]), ['/hook/claude', '/hook/cursor']);
+  assert.equal(JSON.parse(got[0][1]).session_id, 's1');
 });

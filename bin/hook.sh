@@ -1,4 +1,6 @@
 #!/bin/sh
+# Legacy relay: `hooks install` now uses bin/hook.js (no sh or curl needed). Kept so hooks installed
+# by older versions keep working; running `agent-office hooks install` again switches them over.
 # Agent Office hook relay. Forwards the hook payload (stdin) to the local office server.
 # Never makes a decision and always fails silently: if the office isn't running, nothing happens.
 # Usage: hook.sh claude|cursor

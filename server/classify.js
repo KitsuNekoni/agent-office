@@ -1,5 +1,6 @@
 // Tool name + input → kind of activity and a short description.
 // Kinds: think, read, edit, bash, web, agent, ask, error, idle, start, gone.
+import os from 'node:os';
 
 const READ = new Set(['read', 'grep', 'glob', 'ls', 'list', 'listdir', 'list_dir', 'codebase_search', 'semanticsearch', 'semsearch', 'file_search', 'readfile', 'read_file', 'notebookread', 'readlints', 'read_lints']);
 const EDIT = new Set(['edit', 'write', 'multiedit', 'strreplace', 'str_replace', 'notebookedit', 'search_replace', 'edit_file', 'write_file', 'delete', 'deletefile', 'delete_file', 'applypatch', 'apply_patch', 'editnotebook', 'todowrite', 'todo_write']);
@@ -8,7 +9,7 @@ const WEB = new Set(['webfetch', 'websearch', 'web_search', 'fetch', 'web_fetch'
 const AGENT = new Set(['agent', 'task', 'subagent', 'sendmessage']);
 const ASK = new Set(['askuserquestion', 'exitplanmode', 'ask_question', 'askquestion', 'createplan', 'create_plan', 'switchmode', 'switch_mode']);
 
-const base = (p) => String(p).replace(/\/+$/, '').split('/').pop();
+const base = (p) => String(p).replace(/[\\/]+$/, '').split(/[\\/]/).pop();
 const clip = (s, n = 48) => { s = String(s ?? '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
 
 export function kindOfTool(name) {
@@ -53,25 +54,36 @@ export function describeTool(name, input = {}) {
   }
 }
 
-/** Tidy project name from a cwd or a Cursor project slug. */
-export function projectName(cwdOrSlug) {
+// Home folders on Linux (/home/alice), macOS (/Users/alice) and Windows (C:\Users\alice), as a path or as a slug.
+const HOME_PATH = /^(?:[A-Za-z]:)?\/(?:home|Users)\/[^/]+$/i;
+const HOME_SLUG = /^(?:[A-Za-z]-+)?(?:home|Users)-[^-]+(?:-+|$)/i;
+const slugify = (p) => String(p).replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+
+/** Tidy project name from a cwd or a Claude/Cursor project slug. `home` is the user's home folder. */
+export function projectName(cwdOrSlug, home = os.homedir()) {
   const s = String(cwdOrSlug || '');
   if (!s) return '?';
-  if (s.includes('/')) {
-    const parts = s.replace(/\/+$/, '').split('/');
+  if (/[\\/]/.test(s)) {
+    const norm = (p) => String(p).replace(/\\/g, '/').replace(/\/+$/, '');
+    const p = norm(s);
+    if ((home && p.toLowerCase() === norm(home).toLowerCase()) || HOME_PATH.test(p)) return '~';
+    const parts = p.split('/');
     const last = parts.at(-1), parent = parts.at(-2) || '';
     const wt = parent.match(/^(.+)-worktrees$/);
     if (wt) return `${wt[1]} #${last}`;
-    if (parts.length <= 3 && parts[1] === 'home') return '~';
-    return last;
+    return last || p;
   }
-  // Cursor slug: home-alice-git-api-worktrees-12
-  let t = s.replace(/^home-[^-]+-?/, '');
+  // Slug: home-alice-git-api-worktrees-12 (Cursor), -home-alice-git-shop (Claude), Users-alice-..., c-Users-alice-...
+  let t = s.replace(/^-+/, '');
+  const hs = home ? slugify(home) : '';
+  if (hs && t.toLowerCase().startsWith(hs.toLowerCase()) && (t.length === hs.length || t[hs.length] === '-')) t = t.slice(hs.length);
+  else t = t.replace(HOME_SLUG, '');
+  t = t.replace(/^-+/, '');
   if (!t) return '~';
-  t = t.replace(/^(git|projects)-/, '');
+  t = t.replace(/^(git|projects|code|src|dev|repos|Documents)-/i, '');
   const wt = t.match(/^(.+)-worktrees-(\w+)$/);
   if (wt) return `${wt[1]} #${wt[2]}`;
-  return t === 'git' || t === 'projects' ? `~/${t}` : t;
+  return /^(git|projects|code|src|dev|repos|Documents)$/i.test(t) ? `~/${t}` : t;
 }
 
 export { clip };

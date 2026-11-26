@@ -1,5 +1,6 @@
 // Claude Code: session registry (~/.claude/sessions/<pid>.json) + transcripts.
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { createTail } from './tail.js';
 import { parseClaudeLine } from '../parse.js';
@@ -20,8 +21,11 @@ export function pidAlive(pid, procStart) {
 
 const CLIENT = { cli: 'cli', 'claude-desktop': 'app', 'claude-vscode': 'cli', 'sdk-cli': 'cli', 'sdk-ts': 'cli', 'sdk-py': 'cli' };
 
-export function createClaudeSource(store, { home = process.env.HOME } = {}) {
-  const root = path.join(home, '.claude');
+/** Claude Code's config folder: $CLAUDE_CONFIG_DIR, otherwise ~/.claude. */
+export const claudeDir = (home = os.homedir()) => process.env.CLAUDE_CONFIG_DIR || path.join(home, '.claude');
+
+export function createClaudeSource(store, { home = os.homedir(), dir = claudeDir(home) } = {}) {
+  const root = dir;
   const tails = new Map(); // sessionId → tail
   const known = new Map(); // sessionId → transcript path
   const registered = new Set(); // seen in the registry once: don't pick it up as headless

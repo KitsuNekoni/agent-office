@@ -1,6 +1,7 @@
 // HTTP server: static web/, GET /events (SSE snapshots), POST /hook/:src, GET /health.
 import http from 'node:http';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createStore } from './store.js';
@@ -12,7 +13,7 @@ const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'web')
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
 const MAX_BODY = 1024 * 1024;
 
-export function startServer({ port = 4517, host = '127.0.0.1', home = process.env.HOME, log = console.log } = {}) {
+export function startServer({ port = 4517, host = '127.0.0.1', home = os.homedir(), log = console.log } = {}) {
   const store = createStore();
   const claude = createClaudeSource(store, { home });
   const cursor = createCursorSource(store, { home });

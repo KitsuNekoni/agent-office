@@ -1,6 +1,7 @@
 // Cursor: agent transcripts from the IDE and CLI (~/.cursor/projects/<slug>/agent-transcripts/<id>/<id>.jsonl).
 // CLI chats (agent / agent -p, also when started by other tools) also have a folder in ~/.cursor/chats/<hash>/<id>.
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { createTail } from './tail.js';
 import { parseCursorLine } from '../parse.js';
@@ -10,8 +11,8 @@ const ACTIVE_MS = 30 * 60_000; // mid-turn: stays visible this long without new 
 const IDLE_MS = 10 * 60_000;   // after a turn ends: stays idle at the desk this long
 const SUB_MS = 20_000;
 
-export function createCursorSource(store, { home = process.env.HOME } = {}) {
-  const root = path.join(home, '.cursor');
+export function createCursorSource(store, { home = os.homedir(), dir = path.join(home, '.cursor') } = {}) {
+  const root = dir;
   const tracked = new Map(); // id → { tail, dir, mtime, fresh }
   const dismissed = new Map(); // id → mtime when it disappeared; only comes back when the file changes again
 
