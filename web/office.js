@@ -58,15 +58,15 @@
   const mmss = (s) => s >= 3600 ? `${Math.floor(s / 3600)}h${String(Math.floor((s / 60) % 60)).padStart(2, '0')}` : `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
   // ── layout (grows with the number of sessions) ───────────────
-  const W = 400, rowH = 7.6;
+  const W = 400, rowH = 7.6, ROW = 68; // ROW: distance between console rows (room for the name labels)
   let H = 250, CORR = 238, dy = 0, CON = [], wallRows = 8;
   function layout() {
     const n = AG.size;
     wallRows = Math.max(8, Math.min(n, 24));
     dy = Math.max(0, 19 + wallRows * rowH + 13.2 - 93);
     const nd = Math.max(8, Math.ceil(desks.length / 4) * 4), rows = nd / 4;
-    H = 250 + dy + (rows - 2) * 54; CORR = H - 12;
-    CON = Array.from({ length: nd }, (_, i) => ({ x: [86, 166, 246, 326][i % 4], y: 142 + dy + Math.floor(i / 4) * 54 }));
+    H = 250 + dy + (rows - 1) * ROW - 54; CORR = H - 12;
+    CON = Array.from({ length: nd }, (_, i) => ({ x: [86, 166, 246, 326][i % 4], y: 142 + dy + Math.floor(i / 4) * ROW }));
   }
   layout();
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
