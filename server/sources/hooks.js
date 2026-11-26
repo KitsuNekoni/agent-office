@@ -73,7 +73,7 @@ export function createHookSink(store, claude, cursor, { log = null } = {}) {
     } else if (src === 'claude') {
       const id = payload.session_id;
       if (!id) return;
-      log?.(`hook ${src} ${payload.hook_event_name} ${String(id).slice(0, 8)}`);
+      log?.(`hook ${src} ${payload.hook_event_name} ${String(id).slice(0, 8)}${payload.agent_id ? ` agent:${String(payload.agent_id).slice(0, 8)}` : ''}${payload.agent_type ? ` ${payload.agent_type}` : ''}`);
       if (!store.get(id)) claude.track(id, { cwd: payload.cwd, project: projectName(payload.cwd), transcript: payload.transcript_path, t });
       store.apply(id, { type: 'hook' });
       for (const ev of claudeHookEvents(payload, t)) store.apply(id, ev);

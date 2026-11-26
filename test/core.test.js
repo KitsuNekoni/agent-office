@@ -508,3 +508,10 @@ test('hooks: tool calls with an agent_id belong to the subagent', () => {
   assert.equal(ev.type, 'subTool'); assert.equal(ev.id, 'x1'); assert.equal(ev.kind, 'bash');
   assert.equal(claudeHookEvents({ hook_event_name: 'PostToolUse', agent_id: 'x1', tool_use_id: 't' }, 1)[0].type, 'subResult');
 });
+
+test('store: a SubagentStop for an unknown helper does not remove a running one', () => {
+  const { store, s } = setup();
+  store.apply('s', { t: 2000, type: 'subStart', id: 'x1' });
+  store.apply('s', { t: 2001, type: 'subStop', id: 'other' });
+  assert.equal(s().subs, 1);
+});

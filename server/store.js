@@ -106,7 +106,7 @@ export function createStore({ now = () => Date.now() } = {}) {
       // Subagents via hooks next to the Agent tool: count the maximum of both, not the sum.
       // A hook subagent stays until its SubagentStop, also after the main turn ended (background agents).
       case 'subStart': s.subHooks.set(ev.id || `s${t}`, { kind: 'think', txt: 'starting', last: t }); break;
-      case 'subStop': s.subHooks.delete(ev.id && s.subHooks.has(ev.id) ? ev.id : [...s.subHooks.keys()][0]); break;
+      case 'subStop': s.subHooks.delete(ev.id || [...s.subHooks.keys()][0]); break; // an unknown id (an internal helper) removes nobody
       case 'subTool': case 'subResult': { // a tool call inside a subagent: shows on its helper, not on the main agent
         const h = s.subHooks.get(ev.id) || { kind: 'think', txt: '' };
         if (ev.type === 'subTool') { h.kind = ev.kind === 'ask' ? 'think' : ev.kind; h.txt = ev.txt || ''; } else { h.kind = 'think'; h.txt = 'thinking'; }
