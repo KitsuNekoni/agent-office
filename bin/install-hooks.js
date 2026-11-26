@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// Installeert (of met --remove: verwijdert) de Agent Office-hooks in
-//   ~/.claude/settings.json  (Claude Code, globaal; async zodat ze nooit blokkeren)
-//   ~/.cursor/hooks.json     (Cursor; alleen 'after'-events en stop, die nergens over beslissen)
-// Bestaande hooks blijven staan. Eigen entries worden herkend aan het pad van hook.sh.
-// Voor elke wijziging komt er een backup naast het bestand (<bestand>.agent-office.bak).
+// Installs (or with --remove: removes) the Agent Office hooks in
+//   ~/.claude/settings.json  (Claude Code, global; async so they never block)
+//   ~/.cursor/hooks.json     (Cursor; only 'after' events and stop, which decide nothing)
+// Existing hooks are kept. Our own entries are recognised by the path of hook.sh.
+// Before each change a backup is written next to the file (<file>.agent-office.bak).
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,14 +16,14 @@ const dry = process.argv.includes('--dry-run');
 const CLAUDE_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'PermissionRequest', 'Notification', 'Stop', 'StopFailure', 'SubagentStart', 'SubagentStop', 'SessionEnd'];
 const CURSOR_EVENTS = ['afterShellExecution', 'afterFileEdit', 'afterMCPExecution', 'stop'];
 
-// Pad met spaties of andere shell-tekens: tussen enkele aanhalingstekens. Gewone paden blijven zoals ze waren.
+// Path with spaces or other shell characters: wrap in single quotes. Plain paths stay as they were.
 const CMD = /^[\w@%+=:,./-]+$/.test(HOOK) ? HOOK : `'${HOOK.replace(/'/g, `'\\''`)}'`;
-// Eigen entries herkennen aan '.../bin/hook.sh claude|cursor', niet aan het volledige pad:
-// zo worden ook entries van een verplaatste of hernoemde repo opgeruimd.
+// Recognise our entries by '.../bin/hook.sh claude|cursor', not by the full path,
+// so entries from a moved or renamed repo are cleaned up too.
 const ours = (cmd) => typeof cmd === 'string' && (cmd.includes(HOOK) || /[\\/]bin[\\/]hook\.sh'?\s+(claude|cursor)\s*$/.test(cmd));
 
 function readJson(file, fallback) {
-  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { if (e.code === 'ENOENT') return fallback; throw new Error(`${file} is geen geldige JSON; niets aangepast (${e.message})`); }
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { if (e.code === 'ENOENT') return fallback; throw new Error(`${file} is not valid JSON; nothing changed (${e.message})`); }
 }
 function writeJson(file, data) {
   if (dry) { console.log(`--- ${file} (dry run)\n${JSON.stringify(data, null, 2)}`); return; }
@@ -45,7 +45,7 @@ function claude() {
   if (!remove) for (const ev of CLAUDE_EVENTS) (hooks[ev] ||= []).push({ hooks: [{ type: 'command', command: `${CMD} claude`, timeout: 3, async: true }] });
   if (Object.keys(hooks).length) s.hooks = hooks; else delete s.hooks;
   writeJson(file, s);
-  console.log(`${remove ? 'Verwijderd uit' : 'Geïnstalleerd in'} ${file}`);
+  console.log(`${remove ? 'Removed from' : 'Installed in'} ${file}`);
 }
 
 function cursor() {
@@ -59,10 +59,10 @@ function cursor() {
   }
   if (!remove) for (const ev of CURSOR_EVENTS) (hooks[ev] ||= []).push({ command: `${CMD} cursor` });
   s.hooks = hooks;
-  if (remove && !Object.keys(hooks).length && !fs.existsSync(file + '.agent-office.bak')) { if (!dry && fs.existsSync(file)) fs.unlinkSync(file); console.log(`Verwijderd: ${file}`); return; }
+  if (remove && !Object.keys(hooks).length && !fs.existsSync(file + '.agent-office.bak')) { if (!dry && fs.existsSync(file)) fs.unlinkSync(file); console.log(`Removed: ${file}`); return; }
   writeJson(file, s);
-  console.log(`${remove ? 'Verwijderd uit' : 'Geïnstalleerd in'} ${file}`);
+  console.log(`${remove ? 'Removed from' : 'Installed in'} ${file}`);
 }
 
 try { claude(); cursor(); } catch (e) { console.error(e.message); process.exit(1); }
-if (!remove) console.log('Nieuwe Claude Code- en Cursor-sessies sturen nu events naar Agent Office. Al lopende sessies pakken de hooks op na een herstart.');
+if (!remove) console.log('New Claude Code and Cursor sessions now send events to Agent Office. Sessions that are already running pick up the hooks after a restart.');

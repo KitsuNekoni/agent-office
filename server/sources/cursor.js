@@ -1,19 +1,19 @@
-// Cursor: agent-transcripts van IDE en CLI (~/.cursor/projects/<slug>/agent-transcripts/<id>/<id>.jsonl).
-// CLI-chats (agent / agent -p, ook vanuit andere tools) hebben daarnaast een map in ~/.cursor/chats/<hash>/<id>.
+// Cursor: agent transcripts from the IDE and CLI (~/.cursor/projects/<slug>/agent-transcripts/<id>/<id>.jsonl).
+// CLI chats (agent / agent -p, also when started by other tools) also have a folder in ~/.cursor/chats/<hash>/<id>.
 import fs from 'node:fs';
 import path from 'node:path';
 import { createTail } from './tail.js';
 import { parseCursorLine } from '../parse.js';
 import { projectName } from '../classify.js';
 
-const ACTIVE_MS = 30 * 60_000; // midden in een beurt: zo lang zichtbaar zonder nieuwe regels
-const IDLE_MS = 10 * 60_000;   // na het einde van een beurt: nog zo lang in de idle-hoek
+const ACTIVE_MS = 30 * 60_000; // mid-turn: stays visible this long without new lines
+const IDLE_MS = 10 * 60_000;   // after a turn ends: stays idle at the desk this long
 const SUB_MS = 20_000;
 
 export function createCursorSource(store, { home = process.env.HOME } = {}) {
   const root = path.join(home, '.cursor');
   const tracked = new Map(); // id → { tail, dir, mtime, fresh }
-  const dismissed = new Map(); // id → mtime waarop hij verdween; pas terug als het bestand weer verandert
+  const dismissed = new Map(); // id → mtime when it disappeared; only comes back when the file changes again
 
   function cliChats() {
     const out = new Map();
@@ -26,7 +26,7 @@ export function createCursorSource(store, { home = process.env.HOME } = {}) {
     return out;
   }
 
-  /** Begin een sessie te volgen die een hook meldt (Cursor schrijft het transcript soms pas na de beurt). */
+  /** Start following a session reported by a hook (Cursor sometimes writes the transcript only after the turn). */
   function track(id, { cwd = '', transcript = '', t = Date.now() } = {}) {
     const key = 'cursor:' + id;
     if (tracked.has(key) && store.get(key)) return key;
@@ -36,12 +36,12 @@ export function createCursorSource(store, { home = process.env.HOME } = {}) {
     store.upsert(key, { source: 'cursor', client: chat ? 'cursor-cli' : 'cursor', cwd, project: projectName(cwd || slug), name: 'chat ' + id.slice(0, 6), t });
     let mtime = t; try { mtime = fs.statSync(transcript).mtimeMs; } catch {}
     tracked.set(key, { tail: createTail(transcript || path.join(root, 'none')), dir: transcript ? path.dirname(transcript) : '', mtime, fresh: false });
-    while (tracked.get(key).tail.read()); // oude regels overslaan: de hooks vertellen wat er nu gebeurt
+    while (tracked.get(key).tail.read()); // skip old lines: the hooks tell us what is happening now
     store.setAlive(key, true, t);
     return key;
   }
 
-  /** Zoek transcripts die recent veranderd zijn. */
+  /** Find transcripts that changed recently. */
   function scan(t = Date.now()) {
     const pdir = path.join(root, 'projects');
     let slugs = []; try { slugs = fs.readdirSync(pdir); } catch { return; }
@@ -77,16 +77,16 @@ export function createCursorSource(store, { home = process.env.HOME } = {}) {
       if (r) for (const line of r.lines) for (const ev of parseCursorLine(line, r.mtime)) store.apply(key, { ...ev, source: 'cursor' });
       const mtime = r?.mtime ?? tr.mtime;
       if (mtime > tr.mtime) tr.mtime = mtime;
-      // Subagents: bestanden in subagents/ die net veranderd zijn
+      // Subagents: files in subagents/ that just changed
       let subs = 0;
       if (tr.dir) try { for (const f of fs.readdirSync(path.join(tr.dir, 'subagents'))) { const st = fs.statSync(path.join(tr.dir, 'subagents', f)); if (t - st.mtimeMs < SUB_MS) subs++; } } catch {}
       if (subs !== s.cursorSubs) {
         s.cursorSubs = subs; s.subs = new Set(Array.from({ length: subs }, (_, i) => 'c' + i));
-        if (subs) { s.last = t; if (s.ask?.guess) s.ask = null; } // subagent aan het werk: niet aan het wachten
+        if (subs) { s.last = t; if (s.ask?.guess) s.ask = null; } // subagent at work: not waiting
       }
-      const age = t - Math.max(tr.mtime, s.last); // hook-activiteit telt ook als leven
+      const age = t - Math.max(tr.mtime, s.last); // hook activity also counts as alive
       const stale = s.ended ? age > IDLE_MS : age > ACTIVE_MS;
-      if (stale && tr.fresh) { store.sessions.delete(key); tracked.delete(key); dismissed.set(key, tr.mtime); continue; } // al klaar bij opstarten: niet tonen
+      if (stale && tr.fresh) { store.sessions.delete(key); tracked.delete(key); dismissed.set(key, tr.mtime); continue; } // already done at startup: don't show
       tr.fresh = false;
       if (s.alive && stale) { store.setAlive(key, false, t); dismissed.set(key, tr.mtime); }
       else if (!s.alive && age < 5_000) { store.setAlive(key, true, t); dismissed.delete(key); }

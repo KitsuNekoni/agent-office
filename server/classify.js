@@ -1,5 +1,5 @@
-// Toolnaam + input → soort activiteit en een korte omschrijving.
-// Soorten: think, read, edit, bash, web, agent, ask, error, idle, start, gone.
+// Tool name + input → kind of activity and a short description.
+// Kinds: think, read, edit, bash, web, agent, ask, error, idle, start, gone.
 
 const READ = new Set(['read', 'grep', 'glob', 'ls', 'list', 'listdir', 'list_dir', 'codebase_search', 'semanticsearch', 'semsearch', 'file_search', 'readfile', 'read_file', 'notebookread', 'readlints', 'read_lints']);
 const EDIT = new Set(['edit', 'write', 'multiedit', 'strreplace', 'str_replace', 'notebookedit', 'search_replace', 'edit_file', 'write_file', 'delete', 'deletefile', 'delete_file', 'applypatch', 'apply_patch', 'editnotebook', 'todowrite', 'todo_write']);
@@ -21,7 +21,7 @@ export function kindOfTool(name) {
   if (WEB.has(n)) return 'web';
   if (AGENT.has(n)) return 'agent';
   if (n.startsWith('mcp__') || n.startsWith('mcp_') || n.includes('-')) {
-    // MCP: op het werkwoord in de naam
+    // MCP: go by the verb in the name
     if (/(search|read|get|list|query|fetch|find|describe|export)/.test(n)) return n.includes('web') ? 'web' : 'read';
     if (/(write|update|create|publish|edit|delete|send|replace|upload|batch)/.test(n)) return 'edit';
     return 'read';
@@ -31,7 +31,7 @@ export function kindOfTool(name) {
   return 'think';
 }
 
-/** Korte tekst voor wat een tool doet, uit zijn input. */
+/** Short text for what a tool does, from its input. */
 export function describeTool(name, input = {}) {
   const n = String(name || '');
   const i = input && typeof input === 'object' ? input : {};
@@ -47,13 +47,13 @@ export function describeTool(name, input = {}) {
     case 'agent': return clip(i.description || i.subagent_type || 'subagent');
     case 'ask': {
       const q = i.questions?.[0]?.question || i.question;
-      return q ? clip(q, 60) : n.toLowerCase() === 'exitplanmode' ? 'plan ter goedkeuring' : 'vraag aan jou';
+      return q ? clip(q, 60) : n.toLowerCase() === 'exitplanmode' ? 'plan for approval' : 'question for you';
     }
     default: return clip(short);
   }
 }
 
-/** Nette projectnaam uit een cwd of een Cursor-projectslug. */
+/** Tidy project name from a cwd or a Cursor project slug. */
 export function projectName(cwdOrSlug) {
   const s = String(cwdOrSlug || '');
   if (!s) return '?';
@@ -65,7 +65,7 @@ export function projectName(cwdOrSlug) {
     if (parts.length <= 3 && parts[1] === 'home') return '~';
     return last;
   }
-  // Cursor-slug: home-alice-git-api-worktrees-12
+  // Cursor slug: home-alice-git-api-worktrees-12
   let t = s.replace(/^home-[^-]+-?/, '');
   if (!t) return '~';
   t = t.replace(/^(git|projects)-/, '');

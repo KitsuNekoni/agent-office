@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="nl">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -45,20 +45,20 @@ tr.ask td{background:#ff8a3d14}tr.err td{background:#ff4d5e14}tr.gone td{opacity
 <body>
 <header class="band wrap">
   <h1>Agent Office</h1>
-  <p class="note status"><span class="dot" id="conn-dot" style="background:#4a6470"></span><span id="status">verbinden…</span></p>
+  <p class="note status"><span class="dot" id="conn-dot" style="background:#4a6470"></span><span id="status">connecting…</span></p>
 </header>
 
-<section class="band wrap" style="padding-top:10px" aria-label="Controlekamer">
-  <div class="view" id="view"><canvas id="cv" aria-label="Live controlekamer met alle agentsessies op deze PC"></canvas><div class="tip" id="tip" hidden></div></div>
+<section class="band wrap" style="padding-top:10px" aria-label="Control room">
+  <div class="view" id="view"><canvas id="cv" aria-label="Live control room with all agent sessions on this machine"></canvas><div class="tip" id="tip" hidden></div></div>
 </section>
 
 <section class="band wrap cols">
   <div>
-    <h2>Alle sessies</h2>
-    <div class="scroll"><table class="stack"><thead><tr><th>Agent</th><th>Client</th><th>Project</th><th>Status</th><th>Bezig met</th><th>Sinds</th></tr></thead><tbody id="rows"></tbody></table></div>
+    <h2>All sessions</h2>
+    <div class="scroll"><table class="stack"><thead><tr><th>Agent</th><th>Client</th><th>Project</th><th>Status</th><th>Doing</th><th>For</th></tr></thead><tbody id="rows"></tbody></table></div>
   </div>
   <div>
-    <h2>Wat de kleuren betekenen</h2>
+    <h2>What the colours mean</h2>
     <dl class="legend" id="legend"></dl>
   </div>
 </section>

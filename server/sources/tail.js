@@ -1,4 +1,4 @@
-// Leest nieuwe regels uit groeiende JSONL-bestanden. Begint bij grote bestanden aan het eind.
+// Reads new lines from growing JSONL files. Starts near the end of large files.
 import fs from 'node:fs';
 
 const START_BYTES = 512 * 1024;
@@ -8,7 +8,7 @@ export function createTail(path) {
   let offset = -1, partial = '', ino = 0;
   return {
     path,
-    /** Geeft {lines, mtime} met de volledige nieuwe regels sinds de vorige aanroep, of null als er niets is. */
+    /** Returns {lines, mtime} with the complete new lines since the last call, or null if there are none. */
     read() {
       let st;
       try { st = fs.statSync(path); } catch { return null; }

@@ -1,4 +1,4 @@
-// HTTP-server: statische web/, GET /events (SSE-snapshots), POST /hook/:src, GET /health.
+// HTTP server: static web/, GET /events (SSE snapshots), POST /hook/:src, GET /health.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -60,7 +60,7 @@ export function startServer({ port = 4517, host = '127.0.0.1', home = process.en
     const file = path.join(WEB, rel);
     if (!file.startsWith(WEB + path.sep)) return res.writeHead(404).end();
     fs.readFile(file, (err, data) => {
-      if (err) return res.writeHead(404).end('niet gevonden');
+      if (err) return res.writeHead(404).end('not found');
       res.writeHead(200, { 'content-type': TYPES[path.extname(file)] || 'application/octet-stream', 'cache-control': 'no-cache' }).end(data);
     });
   });

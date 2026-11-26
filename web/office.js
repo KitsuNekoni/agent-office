@@ -1,8 +1,8 @@
-// Agent Office: mission control, gevoed door /events (SSE). Alles wordt in code getekend.
+// Agent Office: mission control, fed by /events (SSE). Everything is drawn in code.
 {
   const KC = { start: '#6fa3b5', think: '#b48cff', read: '#5aa9ff', edit: '#3cf0b4', bash: '#e8e36a', web: '#ff8fc7', agent: '#7ee0ff', ask: '#ff8a3d', error: '#ff4d5e', idle: '#4a6470', gone: '#0b2029' };
-  const KN = { start: 'start op', think: 'denkt na', read: 'leest', edit: 'schrijft', bash: 'terminal', web: 'zoekt op het web', agent: 'subagent aan het werk', ask: 'wacht op jou', error: 'fout', idle: 'idle', gone: 'gesloten' };
-  const CLIENT = { cli: { n: 'Terminal', c: '#3cf0b4' }, app: { n: 'Claude-app', c: '#ffb27a' }, cursor: { n: 'Cursor', c: '#5aa9ff' }, 'cursor-cli': { n: 'Cursor CLI', c: '#c9a6ff' } };
+  const KN = { start: 'starting', think: 'thinking', read: 'reading', edit: 'writing', bash: 'terminal', web: 'searching the web', agent: 'subagent at work', ask: 'waiting for you', error: 'error', idle: 'idle', gone: 'closed' };
+  const CLIENT = { cli: { n: 'Terminal', c: '#3cf0b4' }, app: { n: 'Claude app', c: '#ffb27a' }, cursor: { n: 'Cursor', c: '#5aa9ff' }, 'cursor-cli': { n: 'Cursor CLI', c: '#c9a6ff' } };
   const SHIRTS = ['#e85d75', '#3fa7d6', '#9b5de5', '#59cd90', '#f6ae2d', '#f26419', '#00bbf9', '#ef476f', '#7bdff2', '#c77dff', '#ffd166', '#06d6a0'];
   const HAIR = ['#2b1d14', '#d8b04a', '#a83a2a', '#6b3e1f', '#3a3a3a', '#e6e2d6', '#4a2a6b', '#1a1a1a'];
   const SKIN = ['#f1c27d', '#ffdbac', '#e0ac69', '#c68642', '#8d5524'];
@@ -43,31 +43,30 @@
   }
   connect();
 
-  const zoneOf = (k) => (k === 'gone' ? null : k === 'start' ? 'door' : k === 'idle' ? 'lounge' : 'desk');
+  // No break room: idle agents stay at their console with a coffee.
+  const zoneOf = (k) => (k === 'gone' ? null : k === 'start' ? 'door' : 'desk');
   function update() {
     prune();
-    const slot = { door: 0, lounge: 0 }, t = now();
+    let door = 0; const t = now();
     for (const a of list()) {
       a.into = Math.max(0, (t - a.since) / 1000);
       a.zone = zoneOf(a.kind);
-      a.slot = a.zone === 'door' || a.zone === 'lounge' ? slot[a.zone]++ : a.desk;
+      a.slot = a.zone === 'door' ? door++ : a.desk;
     }
   }
-  const clock = () => new Date().toLocaleTimeString('nl-NL', { hour12: false });
-  const mmss = (s) => s >= 3600 ? `${Math.floor(s / 3600)}u${String(Math.floor((s / 60) % 60)).padStart(2, '0')}` : `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  const clock = () => new Date().toLocaleTimeString('en-GB', { hour12: false });
+  const mmss = (s) => s >= 3600 ? `${Math.floor(s / 3600)}h${String(Math.floor((s / 60) % 60)).padStart(2, '0')}` : `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
-  // ── indeling (groeit mee met het aantal sessies) ──────────────
+  // ── layout (grows with the number of sessions) ───────────────
   const W = 400, rowH = 7.6;
-  let H = 250, CORR = 238, dy = 0, CON = [], LOUNGE = [], wallRows = 8;
+  let H = 250, CORR = 238, dy = 0, CON = [], wallRows = 8;
   function layout() {
     const n = AG.size;
     wallRows = Math.max(8, Math.min(n, 24));
     dy = Math.max(0, 19 + wallRows * rowH + 13.2 - 93);
     const nd = Math.max(8, Math.ceil(desks.length / 4) * 4), rows = nd / 4;
     H = 250 + dy + (rows - 2) * 54; CORR = H - 12;
-    CON = Array.from({ length: nd }, (_, i) => ({ x: [78, 146, 214, 282][i % 4], y: 142 + dy + Math.floor(i / 4) * 54 }));
-    LOUNGE = [];
-    for (let y = 146 + dy, r = 0; y < H - 18; y += 33, r++) { LOUNGE.push([356 + (r % 2) * 2, y]); LOUNGE.push([380 + (r % 2) * 2, y + 10]); }
+    CON = Array.from({ length: nd }, (_, i) => ({ x: [86, 166, 246, 326][i % 4], y: 142 + dy + Math.floor(i / 4) * 54 }));
   }
   layout();
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -75,7 +74,6 @@
   const door = () => ({ key: 'door', pts: [{ x: 14, y: CORR }, { x: -8, y: CORR }] });
   const place = (a) => {
     if (a.zone === 'desk') { const k = CON[a.desk]; return { key: 'd' + a.desk + ':' + H, pts: [{ x: k.x + 36, y: CORR }, { x: k.x + 36, y: k.y + 12 }, { x: k.x, y: k.y + 12 }] }; }
-    if (a.zone === 'lounge') { const [x, y] = LOUNGE[a.slot % LOUNGE.length]; return { key: 'l' + a.slot + ':' + H, pts: [{ x: 340, y: CORR }, { x, y }] }; }
     if (a.zone === 'door') return { key: 'q' + a.slot + ':' + H, pts: [{ x: 14, y: CORR }, { x: 14, y: CORR - 16 - a.slot * 16 }] };
     return null;
   };
@@ -88,7 +86,7 @@
       p = pos[a.key] = { x: s.x, y: s.y, at: start, path: [], moving: false };
     }
     if (p.at.key !== tgt.key) {
-      // Indeling veranderd (zelfde plek, andere hoogte): direct verplaatsen in plaats van lopen.
+      // Layout changed (same spot, different height): jump there instead of walking.
       if (p.at.key.split(':')[0] === tgt.key.split(':')[0]) { const e = tgt.pts.at(-1); p.x = e.x; p.y = e.y; p.path = []; }
       else p.path = [...p.at.pts.slice(0, -1).reverse(), ...tgt.pts];
       p.at = tgt;
@@ -102,7 +100,7 @@
     if (!pl && !p.moving) { delete pos[a.key]; return null; }
     return p;
   }
-  const SCR = { think: 'DENKT', read: 'LEEST', edit: 'SCHRIJFT', bash: 'TERMINAL', web: 'WEB', agent: 'SUBAGENT', ask: 'WACHT OP JOU', error: 'FOUT' };
+  const SCR = { think: 'THINKING', read: 'READING', edit: 'WRITING', bash: 'TERMINAL', web: 'WEB', agent: 'SUBAGENT', ask: 'NEEDS YOU', error: 'ERROR', idle: 'IDLE' };
   const wrap = (txt, n) => {
     const out = ['']; for (let w of String(txt || '').split(' ')) { while (w.length > n) { if (out.at(-1)) out.push(''); out[out.length - 1] = w.slice(0, n); out.push(''); w = w.slice(n); } const cur = out.at(-1); if ((cur + ' ' + w).trim().length > n) out.push(w); else out[out.length - 1] = (cur + ' ' + w).trim(); }
     const lines = out.filter(Boolean); if (lines.length > 2) lines[1] = lines[1].slice(0, n - 1) + '…'; return lines.slice(0, 2);
@@ -146,7 +144,6 @@
     c.fillStyle = shirt; rr(c, -4.5, -13 - bob, 9, 12, 3); c.fill();
     c.fillStyle = skin; c.beginPath(); c.arc(0, -16.5 - bob, 3.6, 0, 7); c.fill();
     c.fillStyle = hair; c.beginPath(); c.arc(0, -17.5 - bob, 3.6, Math.PI, 0); c.fill();
-    if (o.cup) { c.fillStyle = '#e9edf3'; c.fillRect(4, -9, 3, 3.5); if (!reduced) { const k = (o.t * 1.2) % 1; c.fillStyle = `rgba(255,255,255,${0.5 - k * 0.5})`; c.fillRect(5, -11 - k * 5, 0.8, 2); } }
     c.restore();
   }
 
@@ -159,11 +156,11 @@
     c.strokeStyle = 'rgba(60,240,180,.05)'; c.lineWidth = 0.5;
     for (let x = -300; x < W + 300; x += 26) { c.beginPath(); c.moveTo(200 + (x - 200) * 0.4, 100 + dy); c.lineTo(x, H); c.stroke(); }
 
-    // wandscherm
+    // wall screen
     c.fillStyle = '#03101a'; c.strokeStyle = '#1e3a47'; c.lineWidth = 1.2; rr(c, 10, 5, 380, 88 + dy, 4); c.fill(); c.stroke();
-    mono(c, 4.4, 700); c.fillStyle = '#5ad1b0'; c.textBaseline = 'middle'; c.fillText('ACTIVITEIT · LAATSTE 60 S', 18, 12.5);
+    mono(c, 4.4, 700); c.fillStyle = '#5ad1b0'; c.textBaseline = 'middle'; c.fillText('ACTIVITY · LAST 60 S', 18, 12.5);
     const tx = 72, tw = 186, span = 60_000;
-    if (!agents.length) { mono(c, 4.4); c.fillStyle = '#3d7f70'; c.fillText(gotData ? 'geen agents actief op deze PC' : 'verbinden met Agent Office…', 18, 26); }
+    if (!agents.length) { mono(c, 4.4); c.fillStyle = '#3d7f70'; c.fillText(gotData ? 'no agents active on this machine' : 'connecting to Agent Office…', 18, 26); }
     agents.slice(0, wallRows).forEach((a, r) => {
       const y = 19 + r * rowH, live = !!a.zone;
       glyph(c, a.client, 18, y + 1.2, 0.8);
@@ -175,19 +172,19 @@
         c.fillStyle = KC[k] || KC.idle; c.globalAlpha = k === 'idle' ? 0.55 : 0.85; c.fillRect(tx + s, y + 0.8, 1.35, rowH - 2.2);
       }
       c.globalAlpha = 1;
-      if (live && a.zone === 'desk') { c.fillStyle = `rgba(255,255,255,${0.4 + 0.4 * Math.sin(t * 5)})`; c.fillRect(tx + tw - 1.4, y + 0.8, 1.4, rowH - 2.2); }
+      if (live && a.zone === 'desk' && a.kind !== 'idle') { c.fillStyle = `rgba(255,255,255,${0.4 + 0.4 * Math.sin(t * 5)})`; c.fillRect(tx + tw - 1.4, y + 0.8, 1.4, rowH - 2.2); }
     });
-    if (agents.length > wallRows) { mono(c, 3.6); c.fillStyle = '#3d7f70'; c.fillText(`+${agents.length - wallRows} meer, zie de tabel`, 25, 19 + wallRows * rowH + 1); }
+    if (agents.length > wallRows) { mono(c, 3.6); c.fillStyle = '#3d7f70'; c.fillText(`+${agents.length - wallRows} more, see the table`, 25, 19 + wallRows * rowH + 1); }
     const lineEnd = 81 + dy;
     c.strokeStyle = '#2de2b0'; c.lineWidth = 0.4; c.beginPath(); c.moveTo(tx + tw, 17); c.lineTo(tx + tw, lineEnd); c.stroke();
-    mono(c, 3.6); c.fillStyle = '#3d7f70'; c.textAlign = 'right'; c.fillText('nu', tx + tw - 2, 12.5); c.textAlign = 'left';
+    mono(c, 3.6); c.fillStyle = '#3d7f70'; c.textAlign = 'right'; c.fillText('now', tx + tw - 2, 12.5); c.textAlign = 'left';
 
-    // wacht op jou
+    // waiting for you
     const waiting = agents.filter((a) => a.kind === 'ask').sort((u, v) => u.since - v.since);
     const maxW = Math.max(1, Math.floor((72 + dy - 14) / 19));
     c.fillStyle = '#0a2430'; rr(c, 266, 9, 120, 72 + dy, 2); c.fill();
-    mono(c, 4.6, 800); c.fillStyle = waiting.length ? '#ff8a3d' : '#5ad1b0'; c.fillText(`WACHT OP JOU · ${waiting.length}`, 271, 15);
-    if (!waiting.length) { mono(c, 4.2); c.fillStyle = '#3d7f70'; c.fillText('niemand wacht op je', 271, 26); }
+    mono(c, 4.6, 800); c.fillStyle = waiting.length ? '#ff8a3d' : '#5ad1b0'; c.fillText(`WAITING FOR YOU · ${waiting.length}`, 271, 15);
+    if (!waiting.length) { mono(c, 4.2); c.fillStyle = '#3d7f70'; c.fillText('nobody is waiting for you', 271, 26); }
     waiting.slice(0, maxW).forEach((a, i) => {
       const y = 22 + i * 19;
       c.fillStyle = `rgba(255,138,61,${a.guess ? 0.4 : 0.55 + 0.45 * Math.sin(t * 4 + i)})`; c.fillRect(271, y, 1.6, 15);
@@ -197,7 +194,7 @@
       c.font = '600 4.3px Manrope, system-ui, sans-serif'; c.fillStyle = a.guess ? '#b39a88' : '#d9c3b3';
       const q = `${a.project} · ${a.txt || ''}`; c.fillText(q.length > 34 ? q.slice(0, 33) + '…' : q, 275, y + 10.5);
     });
-    if (waiting.length > maxW) { mono(c, 3.8); c.fillStyle = '#ff8a3d'; c.fillText(`+${waiting.length - maxW} meer`, 275, 22 + maxW * 19 + 1); }
+    if (waiting.length > maxW) { mono(c, 3.8); c.fillStyle = '#ff8a3d'; c.fillText(`+${waiting.length - maxW} more`, 275, 22 + maxW * 19 + 1); }
     const fy = 87 + dy;
     let cx = 18; c.textBaseline = 'middle';
     Object.keys(CLIENT).forEach((k) => { const n = agents.filter((a) => a.client === k && a.zone).length; glyph(c, k, cx, fy - 2, 0.75); mono(c, 4.2, 600); c.fillStyle = n ? '#9fe8d2' : '#3d7f70'; const s = `${CLIENT[k].n} ${n}`; c.fillText(s, cx + 6.5, fy); cx += c.measureText(s).width + 13; });
@@ -205,12 +202,9 @@
     c.fillStyle = subs ? '#7ee0ff' : '#3d7f70'; c.fillText(`subagents ${subs}`, cx, fy);
     c.textAlign = 'right'; c.fillStyle = '#3d7f70'; c.fillText(clock(), 384, fy); c.textAlign = 'left';
 
-    // deur en lounge
+    // door
     const top = 112 + dy;
     c.fillStyle = '#0b1820'; c.fillRect(4, top, 20, H - top); c.fillStyle = '#3cf0b4'; c.fillRect(10, top - 4, 8, 2);
-    c.fillStyle = 'rgba(40,110,130,.16)'; c.strokeStyle = '#1e3a47'; c.lineWidth = 0.8; rr(c, 340, top, 56, H - top, 3); c.fill(); c.stroke();
-    c.fillStyle = `rgba(60,240,180,${0.7 + 0.3 * Math.sin(t * 2)})`; c.font = '800 6px Manrope, system-ui, sans-serif'; c.textAlign = 'center'; c.fillText('IDLE', 368, top + 9); c.textAlign = 'left';
-    c.fillStyle = '#16232c'; rr(c, 352, top + 84, 24, 6, 2); c.fill();
 
     // consoles
     CON.forEach((k, i) => {
@@ -219,7 +213,7 @@
       for (const [sx, sw] of [[-27, 19], [-6, 33]]) { c.fillStyle = '#020a0e'; c.strokeStyle = '#1e3a47'; c.lineWidth = 0.8; rr(c, x + sx, y - 31, sw, 17, 1.5); c.fill(); c.stroke(); }
       if (here) {
         screenArt(c, a, x - 26, y - 30, 17, 15, t, i);
-        mono(c, 3.6, 800); c.fillStyle = KC[a.kind]; c.textBaseline = 'top'; c.fillText(a.guess ? 'WACHT?' : SCR[a.kind] || '', x - 4.5, y - 28.5);
+        mono(c, 3.6, 800); c.fillStyle = KC[a.kind]; c.textBaseline = 'top'; c.fillText(a.guess ? 'WAITING?' : SCR[a.kind] || '', x - 4.5, y - 28.5);
         mono(c, 3.5, 500); c.fillStyle = '#cfeee6';
         wrap(a.txt, 15).forEach((w, l) => c.fillText(w, x - 4.5, y - 23 + l * 4.2));
         c.textBaseline = 'middle';
@@ -234,7 +228,7 @@
       if (here && a.kind === 'error') beacon(c, x + 28, y - 33, '#ff4d5e', t);
     });
 
-    // mensen
+    // people
     const people = agents.map((a) => ({ a, p: go(a, place(a), dt) })).filter((o) => o.p).sort((u, v) => u.p.y - v.p.y);
     for (const { a, p } of people) {
       const [shirt, hair, skin] = a.look;
@@ -242,6 +236,12 @@
         const y = p.y - 6;
         c.fillStyle = '#1b2a33'; rr(c, p.x - 7, y - 2, 14, 10, 3); c.fill();
         if (a.kind === 'ask') { const wv = Math.sin(t * 6) * 0.25; c.save(); c.translate(p.x + 5, y - 2); c.rotate(-0.35 + wv); c.fillStyle = shirt; rr(c, -1.3, -11, 2.6, 11, 1.2); c.fill(); c.fillStyle = skin; c.beginPath(); c.arc(0, -11.5, 1.6, 0, 7); c.fill(); c.restore(); }
+        else if (a.kind === 'idle') { // coffee break at the console
+          const cx2 = p.x + 6, cy2 = y - 5;
+          c.fillStyle = '#e9edf3'; c.fillRect(cx2, cy2, 3, 3.5); c.strokeStyle = '#e9edf3'; c.lineWidth = 0.5; c.beginPath(); c.arc(cx2 + 3.3, cy2 + 1.7, 1, -1.4, 1.4); c.stroke();
+          c.fillStyle = skin; c.fillRect(cx2 - 1.6, cy2 + 1.2, 1.8, 1.6);
+          if (!reduced) for (let w = 0; w < 2; w++) { const k = (t * 1.1 + w * 0.5) % 1; c.fillStyle = `rgba(255,255,255,${0.45 - k * 0.45})`; c.fillRect(cx2 + 0.8 + w * 1.2, cy2 - 1.5 - k * 5, 0.7, 1.8); }
+        }
         else if (['edit', 'bash'].includes(a.kind)) { const tap = Math.floor(t * 9) % 2; c.fillStyle = skin; c.fillRect(p.x - 7, y - 4 - tap, 2.2, 1.6); c.fillRect(p.x + 4.8, y - 3 - (1 - tap), 2.2, 1.6); }
         c.fillStyle = shirt; c.beginPath(); c.ellipse(p.x, y, 7, 4.5, 0, Math.PI, 0); c.fill();
         const tilt = a.kind === 'think' && !reduced ? Math.sin(t * 1.2) * 0.8 : 0;
@@ -258,7 +258,7 @@
         hits.push({ x: p.x - 8, y: y - 13, w: 16, h: 20, a });
         labels.push({ a, x: p.x, y: y - 13, full: true });
       } else {
-        standing(c, p.x, p.y, a.look, { walk: p.moving, t, cup: !p.moving && a.zone === 'lounge' });
+        standing(c, p.x, p.y, a.look, { walk: p.moving, t });
         hits.push({ x: p.x - 6, y: p.y - 21, w: 12, h: 21, a });
         labels.push({ a, x: p.x, y: p.y - 21, full: false });
       }
@@ -268,7 +268,7 @@
   // ── canvas, labels, tooltip ───────────────────────────────────
   const view = document.getElementById('view'), cv = document.getElementById('cv'), ctx = cv.getContext('2d');
   let hover = null, pinned = null, last = performance.now(), frame = 0, s = 1, shownH = 0;
-  const labelOf = (a) => (a.kind === 'ask' ? (a.guess ? 'lijkt te wachten' : 'wacht op jou') : KN[a.kind]);
+  const labelOf = (a) => (a.kind === 'ask' ? (a.guess ? 'seems to be waiting' : 'waiting for you') : KN[a.kind]);
   function overlay(dpr, cw) {
     const fs = Math.round(Math.max(10, Math.min(12, 11 * (cw / dpr) / 1000)) * dpr), bw = Math.max(1, Math.round(1.3 * dpr));
     const hot = (L) => L.a.key === hover || L.a.key === pinned;
@@ -309,18 +309,18 @@
   cv.addEventListener('click', (e) => { const a = hitAt(e); pinned = a && pinned !== a.key ? a.key : null; });
 
   document.getElementById('legend').innerHTML = ['think', 'read', 'edit', 'bash', 'web', 'agent', 'ask', 'error', 'idle']
-    .map((k) => `<div><span class="dot" style="background:${KC[k]}"></span><span><dt>${KN[k][0].toUpperCase() + KN[k].slice(1)}</dt><dd>${({ think: 'denken of een antwoord schrijven', read: 'bestanden lezen of zoeken', edit: 'bestanden schrijven of wijzigen', bash: 'een commando draaien', web: 'zoeken of een pagina ophalen', agent: 'een helper erbij; staat naast de console', ask: 'toestemming of antwoord nodig: oranje zwaailicht en hand omhoog. "Lijkt te wachten" is een gok (geen hook)', error: 'iets ging mis: rood zwaailicht', idle: 'sessie open, beurt klaar: in de idle-hoek' })[k]}</dd></span></div>`).join('');
+    .map((k) => `<div><span class="dot" style="background:${KC[k]}"></span><span><dt>${KN[k][0].toUpperCase() + KN[k].slice(1)}</dt><dd>${({ think: 'thinking or writing a reply', read: 'reading or searching files', edit: 'writing or changing files', bash: 'running a command', web: 'searching or fetching a page', agent: 'a helper joined; stands next to the console', ask: 'needs permission or an answer: orange beacon and a raised hand. "Seems to be waiting" is a guess (no hook)', error: 'something went wrong: red beacon', idle: 'session open, turn done: coffee at the console' })[k]}</dd></span></div>`).join('');
 
   function table() {
     const order = { ask: 0, error: 1, idle: 3, gone: 4 };
     const rows = [...AG.values()].sort((u, v) => (order[u.kind] ?? 2) - (order[v.kind] ?? 2) || u.desk - v.desk)
       .map((a) => `<tr class="${a.kind === 'ask' ? 'ask' : a.kind === 'error' ? 'err' : a.kind === 'gone' ? 'gone' : ''}"><td><b>${esc(a.name)}</b></td><td><span class="chip">${esc(CLIENT[a.client].n)}</span></td><td>${esc(a.project)}</td><td><span class="chip"><span class="dot" style="background:${KC[a.kind]}"></span>${esc(labelOf(a))}</span></td><td>${esc(a.txt || '–')}</td><td class="t">${a.kind === 'gone' ? '–' : mmss(a.into || 0)}</td></tr>`).join('')
-      || `<tr><td class="empty" colspan="6">${gotData ? 'Geen lopende agentsessies op deze PC.' : 'Verbinden…'}</td></tr>`;
+      || `<tr><td class="empty" colspan="6">${gotData ? 'No running agent sessions on this machine.' : 'Connecting…'}</td></tr>`;
     const tb = document.getElementById('rows'); if (tb.innerHTML !== rows) tb.innerHTML = rows;
     tb.querySelectorAll('td').forEach((td) => { td.dataset.l = td.closest('table').rows[0].cells[td.cellIndex]?.textContent || ''; });
     const n = [...AG.values()].filter((a) => a.kind !== 'gone').length, w = [...AG.values()].filter((a) => a.kind === 'ask').length;
     const hooks = lastHook && now() - lastHook < 30 * 60_000;
-    document.getElementById('status').textContent = connected ? `verbonden · ${n} sessie${n === 1 ? '' : 's'} · ${w} wacht op jou · hooks ${hooks ? 'actief' : 'niet gezien (wachten wordt geraden)'}` : 'verbinding met de server kwijt, opnieuw proberen…';
+    document.getElementById('status').textContent = connected ? `connected · ${n} session${n === 1 ? '' : 's'} · ${w} waiting for you · hooks ${hooks ? 'active' : 'not seen (waiting is guessed)'}` : 'lost connection to the server, retrying…';
     document.getElementById('conn-dot').style.background = !connected ? '#ff4d5e' : w ? '#ff8a3d' : '#3cf0b4';
     const title = w ? `(${w}) Agent Office` : 'Agent Office';
     if (document.title !== title) document.title = title;

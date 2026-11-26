@@ -1,33 +1,35 @@
 # Agent Office
 
-Een live mission control voor alle agents op deze PC. Elke sessie is een operator aan een console: wat hij doet (denkt, leest, schrijft, terminal, web, subagent), wie op je wacht (oranje zwaailicht) en wie klaar is (idle-hoek). Je kunt er alleen naar kijken; agents aansturen kan hier niet.
+Live mission control for every agent on your machine. Each session is an operator at a console. You can see what they're doing (thinking, reading, writing, terminal, web, subagent), who is waiting for you (orange beacon) and who is done (drinking coffee at their console). It's view-only: you can't steer agents from here.
 
 ```sh
-npm start            # http://localhost:4517
+npm start               # http://localhost:4517
 npm test
-npm run hooks:install   # precieze 'wacht op jou' via hooks (Claude Code + Cursor)
+npm run hooks:install   # exact 'waiting for you' via hooks (Claude Code + Cursor)
 npm run hooks:remove
 ```
 
-Geen dependencies, Node 22+. Alles wordt in code getekend.
+No dependencies, Node 22+. Everything is drawn in code.
 
-## Waar de data vandaan komt
+## Where the data comes from
 
-| Client | Bron |
+| Client | Source |
 |---|---|
-| Claude Code (terminal, Claude-app via SSH, headless `-p`) | `~/.claude/sessions/<pid>.json` (welke sessies leven, terminal of app), `~/.claude/projects/<slug>/<id>.jsonl` (wat ze doen) |
-| Cursor IDE en Cursor CLI (`agent`, ook als hij vanuit een ander programma draait) | `~/.cursor/projects/<slug>/agent-transcripts/<id>/<id>.jsonl`; CLI-chats herkend aan `~/.cursor/chats/*/<id>` |
-| Hooks (optioneel) | `bin/hook.sh` stuurt hook-payloads naar `POST /hook/claude` en `/hook/cursor` |
+| Claude Code (terminal, Claude app over SSH, headless `-p`) | `~/.claude/sessions/<pid>.json` (which sessions are alive, terminal or app), `~/.claude/projects/<slug>/<id>.jsonl` (what they're doing) |
+| Cursor IDE and Cursor CLI (`agent`, also when another program starts it) | `~/.cursor/projects/<slug>/agent-transcripts/<id>/<id>.jsonl`; CLI chats are recognised by `~/.cursor/chats/*/<id>` |
+| Hooks (optional) | `bin/hook.sh` sends hook payloads to `POST /hook/claude` and `/hook/cursor` |
 
-Zonder hooks raadt de office "wacht op jou" als een terminal-, schrijf- of webtool langer dan 25 s stil blijft ("lijkt te wachten"). Met de Claude Code-hooks (`PermissionRequest`, `Notification`) is het exact. Cursor heeft geen hook voor toestemmingsvragen, dus daar blijft het een gok. Cursor voert daarnaast ook de Claude Code-hooks uit (`preToolUse`, `postToolUse`, … met `cursor_version` in de payload). De server herkent die en hangt ze aan de Cursor-sessie. Dat is nodig omdat Cursor het transcript soms pas na een beurt wegschrijft.
+Without hooks the office guesses "waiting for you" when a terminal, write or web tool stays quiet for more than 25 s ("seems to be waiting"). With the Claude Code hooks (`PermissionRequest`, `Notification`) it's exact. Cursor has no hook for permission prompts, so there it stays a guess.
 
-De Claude Code-hooks draaien met `async: true` en de relay geeft het na 0,2 s op als de server niet draait. Agents merken er dus niets van. De Cursor-hooks gebruiken alleen `after*`-events en `stop`, en die nemen nergens een beslissing over.
+Cursor also runs the Claude Code hooks (`preToolUse`, `postToolUse`, … with `cursor_version` in the payload). The server recognises those and attaches them to the Cursor session. This matters because Cursor sometimes writes its transcript only after a turn.
 
-## Opbouw
+The Claude Code hooks run with `async: true`, and the relay gives up after 0.2 s if the server isn't running, so agents don't notice anything. The Cursor hooks only use `after*` events and `stop`, which never make a decision.
 
-- `server/classify.js`: toolnaam → soort activiteit, korte omschrijving, projectnaam
-- `server/parse.js`: transcriptregels (Claude, Cursor) → events
-- `server/store.js`: sessiemodel en statusmachine (ask > error > actief > idle; verdwenen sessies blijven 30 s zichtbaar)
-- `server/sources/`: register, transcripts tailen, hook-payloads
-- `server/index.js`: statische `web/`, `GET /events` (SSE), `GET /api/sessions`, `POST /hook/:src`
-- `web/office.js`: de controlekamer (canvas); groeit mee met het aantal sessies
+## Layout
+
+- `server/classify.js`: tool name → kind of activity, short description, project name
+- `server/parse.js`: transcript lines (Claude, Cursor) → events
+- `server/store.js`: session model and state machine (ask > error > active > idle; gone sessions stay visible for 30 s)
+- `server/sources/`: registry, transcript tailing, hook payloads
+- `server/index.js`: static `web/`, `GET /events` (SSE), `GET /api/sessions`, `POST /hook/:src`
+- `web/office.js`: the control room (canvas); grows with the number of sessions

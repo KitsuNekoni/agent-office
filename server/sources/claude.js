@@ -1,4 +1,4 @@
-// Claude Code: sessieregister (~/.claude/sessions/<pid>.json) + transcripts.
+// Claude Code: session registry (~/.claude/sessions/<pid>.json) + transcripts.
 import fs from 'node:fs';
 import path from 'node:path';
 import { createTail } from './tail.js';
@@ -7,7 +7,7 @@ import { projectName } from '../classify.js';
 
 const slugOf = (cwd) => cwd.replace(/[^A-Za-z0-9]/g, '-');
 
-/** Leeft dit proces nog, en is het hetzelfde proces (pid-hergebruik)? */
+/** Is this process still alive, and is it the same process (pid reuse)? */
 export function pidAlive(pid, procStart) {
   try { process.kill(pid, 0); } catch (e) { if (e.code !== 'EPERM') return false; }
   if (!procStart) return true;
@@ -24,7 +24,7 @@ export function createClaudeSource(store, { home = process.env.HOME } = {}) {
   const root = path.join(home, '.claude');
   const tails = new Map(); // sessionId → tail
   const known = new Map(); // sessionId → transcript path
-  const registered = new Set(); // ooit in het register gezien: niet als headless oppikken
+  const registered = new Set(); // seen in the registry once: don't pick it up as headless
 
   function transcriptFor(id, cwd) {
     if (known.has(id)) return known.get(id);
@@ -46,7 +46,7 @@ export function createClaudeSource(store, { home = process.env.HOME } = {}) {
     for (const line of r.lines) for (const ev of parseClaudeLine(line, r.mtime)) store.apply(id, ev);
   }
 
-  /** Registreer een sessie en begin zijn transcript te volgen. */
+  /** Register a session and start following its transcript. */
   function track(id, meta) {
     const existed = !!store.get(id);
     store.upsert(id, { source: 'claude', ...meta });
@@ -73,17 +73,17 @@ export function createClaudeSource(store, { home = process.env.HOME } = {}) {
         name: j.name, nameRank: j.nameSource === 'user' ? 3 : 0, t: j.startedAt });
       const s = store.get(id);
       if (!s.alive) store.setAlive(id, true);
-      // Register zegt idle en er gebeurde daarna niets meer: dan is de beurt voorbij.
+      // Registry says idle and nothing happened since: the turn is over.
       if (j.status === 'idle' && j.statusUpdatedAt > s.last + 1000 && !['idle', 'ask'].includes(s.kind) && !s.open.size) store.apply(id, { t: j.statusUpdatedAt, type: 'idle' });
     }
     for (const s of store.sessions.values()) {
       if (s.source !== 'claude' || !s.alive || live.has(s.id)) continue;
       if (s.pid && !pidAlive(s.pid)) { store.setAlive(s.id, false); continue; }
-      if (!s.pid && Date.now() - s.last > 10 * 60_000) store.setAlive(s.id, false); // headless zonder register
+      if (!s.pid && Date.now() - s.last > 10 * 60_000) store.setAlive(s.id, false); // headless without a registry entry
     }
   }
 
-  /** Headless runs (claude -p) staan niet in het register: pak recent gewijzigde transcripts op. */
+  /** Headless runs (claude -p) are not in the registry: pick up recently changed transcripts. */
   function scanHeadless(t = Date.now()) {
     const pdir = path.join(root, 'projects');
     let dirs = []; try { dirs = fs.readdirSync(pdir); } catch { return; }

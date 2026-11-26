@@ -1,12 +1,12 @@
-// Sessiemodel + statusmachine. Bronnen roepen upsert()/apply()/setAlive() aan;
-// de server leest snapshot() en luistert op onChange.
+// Session model + state machine. Sources call upsert()/apply()/setAlive();
+// the server reads snapshot() and listens on onChange.
 import { clip } from './classify.js';
 
 const HISTORY_MS = 5 * 60_000;
 const ERROR_MS = 8_000;
 const GONE_MS = 30_000;
-const GUESS_MS = 25_000; // stil na een tool zonder resultaat: lijkt te wachten
-const LABEL = { think: 'denkt na', read: 'leest', edit: 'schrijft', bash: 'terminal', web: 'web', agent: 'subagent', ask: 'wacht op jou', error: 'fout', idle: 'idle', start: 'start op' };
+const GUESS_MS = 25_000; // quiet after a tool without a result: seems to be waiting
+const LABEL = { think: 'thinking', read: 'reading', edit: 'writing', bash: 'terminal', web: 'web', agent: 'subagent', ask: 'waiting for you', error: 'error', idle: 'idle', start: 'starting' };
 
 export function createStore({ now = () => Date.now() } = {}) {
   const sessions = new Map();
@@ -16,13 +16,13 @@ export function createStore({ now = () => Date.now() } = {}) {
 
   function get(id) { return sessions.get(id); }
 
-  /** Maak of werk metadata bij. meta: {source, client, project, cwd, name, pid, nameRank} */
+  /** Create or update metadata. meta: {source, client, project, cwd, name, pid, nameRank} */
   function upsert(id, meta = {}) {
     let s = sessions.get(id);
     if (!s) {
       const t = meta.t ?? now();
       s = { id, source: meta.source, client: meta.client || 'cli', project: meta.project || '?', cwd: meta.cwd || '', name: meta.name || id.slice(0, 8), nameRank: meta.nameRank ?? 0,
-        kind: meta.kind || 'start', txt: meta.txt || 'sessie start', since: t, last: t, recent: [], history: [{ t, kind: meta.kind || 'start' }],
+        kind: meta.kind || 'start', txt: meta.txt || 'session starting', since: t, last: t, recent: [], history: [{ t, kind: meta.kind || 'start' }],
         open: new Map(), subs: new Set(), subHooks: new Set(), ask: null, errorUntil: 0, guess: false, alive: true, goneAt: 0, hooks: false, ended: false };
       sessions.set(id, s); changed();
       return s;
@@ -49,24 +49,24 @@ export function createStore({ now = () => Date.now() } = {}) {
     s.kind = kind; s.txt = txt;
   }
 
-  /** Bepaal de zichtbare status uit de interne toestand (prioriteit: ask > error > actief > idle). */
+  /** Derive the visible status from the internal state (priority: ask > error > active > idle). */
   function settle(s, t, fallback) {
     if (!s.alive) return setKind(s, 'gone', '', t);
     if (s.ask) return setKind(s, 'ask', s.ask.txt, s.ask.t);
-    if (s.errorUntil > t) return setKind(s, 'error', s.errorTxt || 'fout', t);
+    if (s.errorUntil > t) return setKind(s, 'error', s.errorTxt || 'error', t);
     const open = [...s.open.values()].at(-1);
     if (open) return setKind(s, open.kind, open.txt, t);
     if (fallback) return setKind(s, fallback.kind, fallback.txt, t);
   }
 
-  /** Verwerk een genormaliseerd event (uit transcript of hook). */
+  /** Process a normalised event (from a transcript or hook). */
   function apply(id, ev) {
     const s = sessions.get(id);
     if (!s) return;
     const t = ev.t ?? now();
     if (ev.type === 'title') { if (s.nameRank <= 2) { s.name = clip(ev.txt, 40); s.nameRank = 2; changed(); } return; }
     if (ev.type === 'hook') { s.hooks = true; return; }
-    // Een openstaande vraag wordt alleen gewist door iets dat ná de vraag gebeurde.
+    // An open question is only cleared by something that happened after it.
     const after = !s.ask || t > s.ask.t;
     if (t > s.last) s.last = t;
     if (s.ask?.guess && t > s.ask.t) s.ask = null;
@@ -75,42 +75,42 @@ export function createStore({ now = () => Date.now() } = {}) {
     switch (ev.type) {
       case 'start':
         s.ended = false; s.open.clear(); s.subs.clear(); s.subHooks.clear();
-        settle(s, t, { kind: 'start', txt: 'sessie start' }); break;
+        settle(s, t, { kind: 'start', txt: 'session starting' }); break;
       case 'prompt':
         s.ended = false; if (after) s.ask = null; s.open.clear();
         if (!s.nameRank && ev.txt) { s.name = clip(ev.txt, 32); s.nameRank = 1; }
-        settle(s, t, { kind: 'think', txt: 'denkt na' }); break;
+        settle(s, t, { kind: 'think', txt: 'thinking' }); break;
       case 'think':
         s.ended = false; if (after) s.ask = null;
         if (ev.source === 'cursor') s.open.clear();
-        settle(s, t, { kind: 'think', txt: ev.txt || 'denkt na' }); break;
+        settle(s, t, { kind: 'think', txt: ev.txt || 'thinking' }); break;
       case 'tool':
         s.ended = false;
-        if (ev.kind === 'ask') { if (!s.ask || after) s.ask = { t, txt: ev.txt || 'vraag aan jou', id: ev.id }; }
+        if (ev.kind === 'ask') { if (!s.ask || after) s.ask = { t, txt: ev.txt || 'question for you', id: ev.id }; }
         else if (after && s.ask && s.ask.id !== ev.id) s.ask = null;
         if (ev.kind === 'agent') s.subs.add(ev.id);
-        if (ev.source === 'cursor') s.open.clear(); // Cursor kent geen resultaten: de laatste tool is de huidige
+        if (ev.source === 'cursor') s.open.clear(); // Cursor has no results: the last tool is the current one
         if (ev.kind !== 'ask') s.open.set(ev.id || `t${t}`, { kind: ev.kind, txt: ev.txt });
         settle(s, t); break;
       case 'result': {
         if (ev.id && s.ask?.id === ev.id) s.ask = null;
         else if (after && s.ask?.hookOnly) s.ask = null;
         if (ev.id) { s.open.delete(ev.id); s.subs.delete(ev.id); } else s.open.delete([...s.open.keys()].at(-1));
-        if (ev.error) { s.errorUntil = t + ERROR_MS; s.errorTxt = ev.txt || 'tool gaf een fout'; }
-        settle(s, t, { kind: 'think', txt: 'denkt na' }); break;
+        if (ev.error) { s.errorUntil = t + ERROR_MS; s.errorTxt = ev.txt || 'tool failed'; }
+        settle(s, t, { kind: 'think', txt: 'thinking' }); break;
       }
-      case 'permission': // hook: Claude vraagt toestemming
-        s.ask = { t, txt: ev.txt || 'wil toestemming', id: [...s.open.keys()].at(-1), hookOnly: true };
+      case 'permission': // hook: Claude asks for permission
+        s.ask = { t, txt: ev.txt || 'wants permission', id: [...s.open.keys()].at(-1), hookOnly: true };
         settle(s, t); break;
-      // Subagents via hooks naast de Agent-tool: tel het maximum van beide, niet de som.
+      // Subagents via hooks next to the Agent tool: count the maximum of both, not the sum.
       case 'subStart': s.subHooks.add(ev.id || `s${t}`); break;
       case 'subStop': s.subHooks.delete(ev.id && s.subHooks.has(ev.id) ? ev.id : [...s.subHooks][0]); break;
       case 'turnEnd':
         s.ended = true; s.ask = null; s.open.clear(); s.subs.clear(); s.subHooks.clear();
-        settle(s, t, { kind: 'idle', txt: ev.ok === false ? (ev.txt || 'gestopt') : 'klaar, jouw beurt' }); break;
+        settle(s, t, { kind: 'idle', txt: ev.ok === false ? (ev.txt || 'stopped') : 'done, your turn' }); break;
       case 'idle':
         if (s.open.size && !s.ask) break;
-        if (!s.ask) { s.ended = true; settle(s, t, { kind: 'idle', txt: ev.txt || 'klaar, jouw beurt' }); } break;
+        if (!s.ask) { s.ended = true; settle(s, t, { kind: 'idle', txt: ev.txt || 'done, your turn' }); } break;
       case 'gone': setAlive(id, false, t); return;
     }
     changed();
@@ -121,19 +121,19 @@ export function createStore({ now = () => Date.now() } = {}) {
     if (!s || s.alive === alive) return;
     s.alive = alive;
     if (!alive) { s.goneAt = t; s.ask = null; s.open.clear(); s.subs.clear(); s.subHooks.clear(); setKind(s, 'gone', '', t); }
-    else { s.goneAt = 0; setKind(s, s.ended ? 'idle' : 'think', s.ended ? 'klaar, jouw beurt' : 'denkt na', t); }
+    else { s.goneAt = 0; setKind(s, s.ended ? 'idle' : 'think', s.ended ? 'done, your turn' : 'thinking', t); }
     changed();
   }
 
-  /** Periodiek: fouten laten verlopen, 'lijkt te wachten' afleiden, verdwenen sessies opruimen. */
+  /** Periodically: expire errors, infer 'seems to be waiting', clean up gone sessions. */
   function tick(t = now()) {
     for (const [id, s] of sessions) {
       if (!s.alive && t - s.goneAt > GONE_MS) { sessions.delete(id); changed(); continue; }
-      if (s.kind === 'error' && s.errorUntil <= t) { settle(s, t, { kind: s.ended ? 'idle' : 'think', txt: s.ended ? 'klaar, jouw beurt' : 'denkt na' }); changed(); }
+      if (s.kind === 'error' && s.errorUntil <= t) { settle(s, t, { kind: s.ended ? 'idle' : 'think', txt: s.ended ? 'done, your turn' : 'thinking' }); changed(); }
       const open = [...s.open.values()].at(-1);
-      // Zonder hooks (Cursor, of Claude zonder hook-events) raden we 'wacht op jou' bij een lang stille tool.
+      // Without hooks (Cursor, or Claude without hook events) we guess 'waiting for you' when a tool stays quiet for long.
       if (s.alive && !s.ask && !s.hooks && open && ['bash', 'edit', 'web'].includes(open.kind) && t - s.last > GUESS_MS && !s.guess) {
-        s.guess = true; s.ask = { t, txt: `lijkt te wachten: ${open.txt}`, guess: true, hookOnly: true }; setKind(s, 'ask', s.ask.txt, t); changed();
+        s.guess = true; s.ask = { t, txt: `seems to be waiting: ${open.txt}`, guess: true, hookOnly: true }; setKind(s, 'ask', s.ask.txt, t); changed();
       }
     }
   }
