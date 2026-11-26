@@ -6,6 +6,7 @@ const HISTORY_MS = 5 * 60_000;
 const ERROR_MS = 8_000;
 const GONE_MS = 30_000;
 const GUESS_MS = 25_000; // quiet after a tool without a result: seems to be waiting
+const SUB_STALE_MS = 20 * 60_000; // a subagent without any sign of life for this long has been lost (missed SubagentStop)
 const LABEL = { think: 'thinking', read: 'reading', edit: 'writing', bash: 'terminal', web: 'web', agent: 'subagent', ask: 'waiting for you', error: 'error', idle: 'idle', start: 'starting' };
 
 export function createStore({ now = () => Date.now() } = {}) {
@@ -23,7 +24,7 @@ export function createStore({ now = () => Date.now() } = {}) {
       const t = meta.t ?? now();
       s = { id, source: meta.source, client: meta.client || 'cli', project: meta.project || '?', cwd: meta.cwd || '', name: meta.name || id.slice(0, 8), nameRank: meta.nameRank ?? 0,
         kind: meta.kind || 'start', txt: meta.txt || 'session starting', since: t, last: t, recent: [], history: [{ t, kind: meta.kind || 'start' }],
-        open: new Map(), subs: new Set(), subHooks: new Set(), ask: null, errorUntil: 0, guess: false, alive: true, goneAt: 0, hooks: false, ended: false };
+        open: new Map(), subs: new Set(), subHooks: new Map(), ask: null, errorUntil: 0, guess: false, alive: true, goneAt: 0, hooks: false, ended: false };
       sessions.set(id, s); changed();
       return s;
     }
@@ -103,10 +104,16 @@ export function createStore({ now = () => Date.now() } = {}) {
         s.ask = { t, txt: ev.txt || 'wants permission', id: [...s.open.keys()].at(-1), hookOnly: true };
         settle(s, t); break;
       // Subagents via hooks next to the Agent tool: count the maximum of both, not the sum.
-      case 'subStart': s.subHooks.add(ev.id || `s${t}`); break;
-      case 'subStop': s.subHooks.delete(ev.id && s.subHooks.has(ev.id) ? ev.id : [...s.subHooks][0]); break;
+      // A hook subagent stays until its SubagentStop, also after the main turn ended (background agents).
+      case 'subStart': s.subHooks.set(ev.id || `s${t}`, { kind: 'think', txt: 'starting', last: t }); break;
+      case 'subStop': s.subHooks.delete(ev.id && s.subHooks.has(ev.id) ? ev.id : [...s.subHooks.keys()][0]); break;
+      case 'subTool': case 'subResult': { // a tool call inside a subagent: shows on its helper, not on the main agent
+        const h = s.subHooks.get(ev.id) || { kind: 'think', txt: '' };
+        if (ev.type === 'subTool') { h.kind = ev.kind === 'ask' ? 'think' : ev.kind; h.txt = ev.txt || ''; } else { h.kind = 'think'; h.txt = 'thinking'; }
+        h.last = t; s.subHooks.set(ev.id, h); break;
+      }
       case 'turnEnd':
-        s.ended = true; s.ask = null; s.open.clear(); s.subs.clear(); s.subHooks.clear();
+        s.ended = true; s.ask = null; s.open.clear(); s.subs.clear();
         settle(s, t, { kind: 'idle', txt: ev.ok === false ? (ev.txt || 'stopped') : 'done, your turn' }); break;
       case 'idle':
         if (s.open.size && !s.ask) break;
@@ -129,6 +136,7 @@ export function createStore({ now = () => Date.now() } = {}) {
   function tick(t = now()) {
     for (const [id, s] of sessions) {
       if (!s.alive && t - s.goneAt > GONE_MS) { sessions.delete(id); changed(); continue; }
+      for (const [k, h] of s.subHooks) if (t - h.last > SUB_STALE_MS) { s.subHooks.delete(k); changed(); }
       if (s.kind === 'error' && s.errorUntil <= t) { settle(s, t, { kind: s.ended ? 'idle' : 'think', txt: s.ended ? 'done, your turn' : 'thinking' }); changed(); }
       const open = [...s.open.values()].at(-1);
       // Without hooks (Cursor, or Claude without hook events) we guess 'waiting for you' when a tool stays quiet for long.
@@ -141,8 +149,10 @@ export function createStore({ now = () => Date.now() } = {}) {
   function view(s, t) {
     const cut = t - 70_000;
     let i = s.history.length - 1; while (i > 0 && s.history[i].t > cut) i--;
+    // Helpers: the hook subagents (with what they do), or the running Agent tools when there are more of those.
+    const helpers = s.subHooks.size >= s.subs.size ? [...s.subHooks].map(([id, h]) => ({ id, kind: h.kind, txt: h.txt })) : [...s.subs].map((id) => ({ id: String(id), kind: 'agent', txt: '' }));
     return { id: s.id, client: s.client, project: s.project, name: s.name, kind: s.kind, label: LABEL[s.kind] || s.kind, txt: s.txt, since: s.since,
-      recent: s.recent, history: s.history.slice(i), subs: Math.max(s.subs.size, s.subHooks.size), guess: !!s.ask?.guess, hooks: s.hooks };
+      recent: s.recent, history: s.history.slice(i), subs: helpers.length, helpers, guess: !!s.ask?.guess, hooks: s.hooks };
   }
 
   function snapshot(t = now()) {

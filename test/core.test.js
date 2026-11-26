@@ -485,3 +485,26 @@ test('update: end to end with real git, a newer upstream is pulled and the hooks
   assert.deepEqual(cu.hooks.stop.map((h) => h.command), [`${process.execPath} ${path.join(clone, 'bin', 'hook.js')} cursor 4600`]);
   fs.rmSync(tmp, { recursive: true, force: true });
 });
+
+test('store: background subagents stay until SubagentStop, and their tools do not move the main agent', () => {
+  const { store, s } = setup();
+  store.apply('s', { t: 2000, type: 'tool', id: 'c1', kind: 'agent', txt: 'test 1' });
+  store.apply('s', { t: 2001, type: 'subStart', id: 'x1' });
+  store.apply('s', { t: 2002, type: 'result', id: 'c1' }); // background launch returns at once
+  store.apply('s', { t: 2003, type: 'subStart', id: 'x2' });
+  store.apply('s', { t: 2100, type: 'turnEnd', ok: true });
+  assert.equal(s().subs, 2);
+  assert.equal(s().kind, 'idle');
+  store.apply('s', { t: 2200, type: 'subTool', id: 'x1', kind: 'bash', txt: 'sleep 20' });
+  assert.equal(s().kind, 'idle');
+  assert.deepEqual(s().helpers.map((h) => h.kind), ['bash', 'think']);
+  store.apply('s', { t: 3000, type: 'subStop', id: 'x1' });
+  store.apply('s', { t: 3001, type: 'subStop', id: 'x2' });
+  assert.equal(s().subs, 0);
+});
+
+test('hooks: tool calls with an agent_id belong to the subagent', () => {
+  const ev = claudeHookEvents({ hook_event_name: 'PreToolUse', agent_id: 'x1', tool_name: 'Bash', tool_input: { command: 'ls' }, tool_use_id: 't' }, 1)[0];
+  assert.equal(ev.type, 'subTool'); assert.equal(ev.id, 'x1'); assert.equal(ev.kind, 'bash');
+  assert.equal(claudeHookEvents({ hook_event_name: 'PostToolUse', agent_id: 'x1', tool_use_id: 't' }, 1)[0].type, 'subResult');
+});

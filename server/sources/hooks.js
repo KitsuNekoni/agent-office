@@ -6,6 +6,9 @@ import { promptText } from '../parse.js';
 export function claudeHookEvents(p, t = Date.now()) {
   const name = p.hook_event_name;
   const id = p.tool_use_id;
+  // Tool calls inside a subagent carry its agent_id: they belong to that helper, not to the main agent.
+  if (p.agent_id && name === 'PreToolUse') return [{ t, type: 'subTool', id: p.agent_id, kind: kindOfTool(p.tool_name), txt: describeTool(p.tool_name, p.tool_input) }];
+  if (p.agent_id && (name === 'PostToolUse' || name === 'PostToolUseFailure')) return [{ t, type: 'subResult', id: p.agent_id }];
   switch (name) {
     case 'SessionStart': return [{ t, type: 'start' }];
     case 'UserPromptSubmit': return [{ t, type: 'prompt', txt: promptText(p.prompt) }];

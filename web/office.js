@@ -23,7 +23,7 @@
       seen.add(s.id);
       let a = AG.get(s.id);
       if (!a) { a = { key: s.id, look: lookOf(s.id), desk: deskFor(s.id) }; AG.set(s.id, a); }
-      Object.assign(a, { name: s.name, client: CLIENT[s.client] ? s.client : 'cli', project: s.project, kind: s.kind, txt: s.txt, since: s.since, recent: s.recent, history: s.history, subs: s.subs, guess: s.guess, removeAt: 0 });
+      Object.assign(a, { name: s.name, client: CLIENT[s.client] ? s.client : 'cli', project: s.project, kind: s.kind, txt: s.txt, since: s.since, recent: s.recent, history: s.history, subs: s.subs, helpers: s.helpers || [], guess: s.guess, removeAt: 0 });
     }
     if (d.update) showUpdate(d.update);
     for (const a of AG.values()) if (!seen.has(a.key) && !a.removeAt) { a.kind = 'gone'; a.txt = ''; a.removeAt = now() + 8000; a.history = [...(a.history || []), { t: now(), kind: 'gone' }]; }
@@ -135,6 +135,7 @@
     if (!pl && !p.moving) { delete pos[a.key]; return null; }
     return p;
   }
+  const MINI_MAX = 7; // subagent figures shown per agent; more become '+n'
   const SCR = { think: 'THINKING', read: 'READING', edit: 'WRITING', bash: 'TERMINAL', web: 'WEB', agent: 'SUBAGENT', ask: 'NEEDS YOU', error: 'ERROR', idle: 'IDLE' };
   const wrap = (txt, n) => {
     const out = ['']; for (let w of String(txt || '').split(' ')) { while (w.length > n) { if (out.at(-1)) out.push(''); out[out.length - 1] = w.slice(0, n); out.push(''); w = w.slice(n); } const cur = out.at(-1); if ((cur + ' ' + w).trim().length > n) out.push(w); else out[out.length - 1] = (cur + ' ' + w).trim(); }
@@ -175,7 +176,7 @@
   function standing(c, x, y, lk, o = {}) {
     const [shirt, hair, skin] = lk, sc = o.scale || 1, bob = o.walk ? Math.abs(Math.sin(o.t * 9)) * 1.2 : 0;
     c.save(); c.translate(x, y); c.scale(sc, sc); c.globalAlpha = o.alpha ?? 1;
-    c.fillStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.ellipse(0, 0, 5, 1.6, 0, 0, 7); c.fill();
+    if (!o.flat) { c.fillStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.ellipse(0, 0, 5, 1.6, 0, 0, 7); c.fill(); }
     c.fillStyle = shirt; rr(c, -4.5, -13 - bob, 9, 12, 3); c.fill();
     c.fillStyle = skin; c.beginPath(); c.arc(0, -16.5 - bob, 3.6, 0, 7); c.fill();
     c.fillStyle = hair; c.beginPath(); c.arc(0, -17.5 - bob, 3.6, Math.PI, 0); c.fill();
@@ -284,14 +285,18 @@
         c.strokeStyle = '#d8e3ea'; c.lineWidth = 0.9; c.beginPath(); c.arc(p.x + tilt, y - 7, 4.6, Math.PI * 1.05, Math.PI * 1.95); c.stroke();
         c.fillStyle = '#d8e3ea'; c.fillRect(p.x - 5.2 + tilt, y - 8, 1.4, 3); c.fillRect(p.x + 3.8 + tilt, y - 8, 1.4, 3);
         if (a.kind === 'think') for (let d = 0; d < 3; d++) { c.fillStyle = `rgba(180,140,255,${0.35 + 0.65 * ((Math.floor(t * 3) % 3) === d)})`; c.beginPath(); c.arc(p.x + 7 + d * 2.6, y - 13 - d * 1.2, 0.9, 0, 7); c.fill(); }
-        if (a.subs > 0 || a.kind === 'agent') {
-          const k = CON[a.desk], appear = 1, n = Math.max(1, a.subs);
-          standing(c, k.x + 36, k.y + 14, [shirt + 'cc', hair, skin], { scale: 0.78, alpha: appear, t });
-          mono(c, 3.4, 700); c.fillStyle = '#7ee0ff'; c.textAlign = 'center'; c.fillText(n > 1 ? `sub ×${n}` : 'sub', k.x + 36, k.y + 17.5); c.textAlign = 'left';
-          c.strokeStyle = 'rgba(126,224,255,.5)'; c.setLineDash([1, 1.2]); c.lineWidth = 0.5; c.beginPath(); c.moveTo(p.x + 7, y - 2); c.lineTo(k.x + 32, k.y + 2); c.stroke(); c.setLineDash([]);
-        }
-        hits.push({ x: p.x - 8, y: y - 13, w: 16, h: 20, a });
-        labels.push({ a, x: p.x, y: y + 8.5, full: true }); // below the chair, not over the screens
+        // Subagents: small figures in a row under the agent, above its label, until they report back.
+        const hs = a.helpers.length ? a.helpers : a.kind === 'agent' ? [{ id: a.key + ':sub', kind: 'agent' }] : [];
+        const shown = hs.slice(0, MINI_MAX), gap = 5.2, x0 = p.x - ((shown.length - 1) * gap) / 2 - (hs.length > MINI_MAX ? 2.5 : 0), fy2 = y + 18;
+        shown.forEach((h, j) => {
+          const mx = x0 + j * gap, bob = KC[h.kind] && h.kind !== 'idle' && !reduced ? Math.abs(Math.sin(t * 4 + j)) * 0.4 : 0;
+          standing(c, mx, fy2 - bob, lookOf(h.id), { scale: 0.42, flat: true, t });
+          c.fillStyle = KC[h.kind] || KC.agent; c.beginPath(); c.arc(mx, fy2 - 9.8, 0.75, 0, 7); c.fill(); // what this helper is doing
+        });
+        if (hs.length > MINI_MAX) { mono(c, 3.2, 700); c.fillStyle = '#7ee0ff'; c.textBaseline = 'middle'; c.fillText(`+${hs.length - MINI_MAX}`, x0 + MINI_MAX * gap - 2, fy2 - 4); }
+        const below = hs.length ? 11 : 0;
+        hits.push({ x: p.x - 8, y: y - 13, w: 16, h: 20 + below, a });
+        labels.push({ a, x: p.x, y: y + 8.5 + below, full: true }); // below the chair (and its helpers), not over the screens
       } else {
         standing(c, p.x, p.y, a.look, { walk: p.moving, t });
         hits.push({ x: p.x - 6, y: p.y - 21, w: 12, h: 21, a });
@@ -346,7 +351,7 @@
   cv.addEventListener('click', (e) => { const a = hitAt(e); pinned = a && pinned !== a.key ? a.key : null; });
 
   document.getElementById('legend').innerHTML = ['think', 'read', 'edit', 'bash', 'web', 'agent', 'ask', 'error', 'idle']
-    .map((k) => `<div><span class="dot" style="background:${KC[k]}"></span><span><dt>${KN[k][0].toUpperCase() + KN[k].slice(1)}</dt><dd>${({ think: 'thinking or writing a reply', read: 'reading or searching files', edit: 'writing or changing files', bash: 'running a command', web: 'searching or fetching a page', agent: 'a helper joined; stands next to the console', ask: 'needs permission or an answer: orange beacon and a raised hand. "Seems to be waiting" is a guess (no hook)', error: 'something went wrong: red beacon', idle: 'session open, turn done: coffee at the console' })[k]}</dd></span></div>`).join('');
+    .map((k) => `<div><span class="dot" style="background:${KC[k]}"></span><span><dt>${KN[k][0].toUpperCase() + KN[k].slice(1)}</dt><dd>${({ think: 'thinking or writing a reply', read: 'reading or searching files', edit: 'writing or changing files', bash: 'running a command', web: 'searching or fetching a page', agent: 'subagents show as small figures under the agent until they report back', ask: 'needs permission or an answer: orange beacon and a raised hand. "Seems to be waiting" is a guess (no hook)', error: 'something went wrong: red beacon', idle: 'session open, turn done: coffee at the console' })[k]}</dd></span></div>`).join('');
 
   function table() {
     const order = { ask: 0, error: 1, idle: 3, gone: 4 };
