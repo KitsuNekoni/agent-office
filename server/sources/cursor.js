@@ -9,6 +9,7 @@ import { projectName } from '../classify.js';
 
 const ACTIVE_MS = 30 * 60_000; // mid-turn: stays visible this long without new lines
 const IDLE_MS = 10 * 60_000;   // after a turn ends: stays idle at the desk this long
+const HOOK_ONLY_MS = 2 * 60_000; // no transcript on disk, only hooks: mid-turn stays visible this long without activity
 const SUB_MS = 20_000;
 
 export function createCursorSource(store, { home = os.homedir(), dir = path.join(home, '.cursor') } = {}) {
@@ -86,7 +87,8 @@ export function createCursorSource(store, { home = os.homedir(), dir = path.join
         if (subs) { s.last = t; if (s.ask?.guess) s.ask = null; } // subagent at work: not waiting
       }
       const age = t - Math.max(tr.mtime, s.last); // hook activity also counts as alive
-      const stale = s.ended ? age > IDLE_MS : age > ACTIVE_MS;
+      const hookOnly = !fs.existsSync(tr.tail.path);
+      const stale = s.ended ? age > IDLE_MS : age > (hookOnly ? HOOK_ONLY_MS : ACTIVE_MS);
       if (stale && tr.fresh) { store.sessions.delete(key); tracked.delete(key); dismissed.set(key, tr.mtime); continue; } // already done at startup: don't show
       tr.fresh = false;
       if (s.alive && stale) { store.setAlive(key, false, t); dismissed.set(key, tr.mtime); }

@@ -13,11 +13,11 @@ const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'web')
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
 const MAX_BODY = 1024 * 1024;
 
-export function startServer({ port = 4517, host = '127.0.0.1', home = os.homedir(), log = console.log } = {}) {
+export function startServer({ port = 4517, host = '127.0.0.1', home = os.homedir(), log = console.log, debug = !!process.env.AGENT_OFFICE_DEBUG } = {}) {
   const store = createStore();
   const claude = createClaudeSource(store, { home });
   const cursor = createCursorSource(store, { home });
-  const hook = createHookSink(store, claude, cursor);
+  const hook = createHookSink(store, claude, cursor, { log: debug ? (m) => log(`${new Date().toTimeString().slice(0, 8)} ${m}`) : null });
   const clients = new Set();
   let lastHook = 0;
 

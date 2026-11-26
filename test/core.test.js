@@ -205,6 +205,47 @@ test('hooks: Cursor via the Claude hook route becomes a Cursor session, even wit
   fs.rmSync(home, { recursive: true, force: true });
 });
 
+test('hooks: a non-activity hook does not bring a finished or unknown Cursor chat back', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-'));
+  const dir = path.join(home, '.cursor', 'projects', 'home-x-git-shop', 'agent-transcripts', 'old1');
+  fs.mkdirSync(dir, { recursive: true });
+  const transcript = path.join(dir, 'old1.jsonl');
+  fs.writeFileSync(transcript, J({ type: 'turn_ended', status: 'success' }) + '\n');
+  const store = createStore();
+  const cursor = createCursorSource(store, { home });
+  const logs = [];
+  const hook = createHookSink(store, { track() {} }, cursor, { log: (m) => logs.push(m) });
+  const base = { cursor_version: '3.32.4', workspace_roots: ['/home/x/git/shop'] };
+  // Finished chat with a transcript, and an internal chat without one: results and session starts are ignored.
+  hook('claude', { ...base, conversation_id: 'old1', transcript_path: transcript, hook_event_name: 'postToolUse', tool_use_id: 'u1' });
+  hook('claude', { ...base, conversation_id: 'ghost', hook_event_name: 'sessionStart' });
+  hook('cursor', { ...base, conversation_id: 'ghost', hook_event_name: 'stop', status: 'completed' });
+  assert.equal(store.get('cursor:old1'), undefined);
+  assert.equal(store.get('cursor:ghost'), undefined);
+  assert.ok(logs.every((l) => l.endsWith('ignored')), logs.join('\n'));
+  // Real activity does show it, and a finished chat ignores a stray result.
+  hook('cursor', { ...base, conversation_id: 'old1', transcript_path: transcript, hook_event_name: 'afterShellExecution' });
+  assert.equal(store.get('cursor:old1').kind, 'think');
+  hook('cursor', { ...base, conversation_id: 'old1', hook_event_name: 'stop', status: 'completed' });
+  hook('claude', { ...base, conversation_id: 'old1', hook_event_name: 'postToolUse', tool_use_id: 'u2' });
+  assert.equal(store.get('cursor:old1').kind, 'idle');
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('cursor: a chat seen only through hooks leaves after 2 quiet minutes', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-'));
+  const store = createStore();
+  const cursor = createCursorSource(store, { home });
+  const hook = createHookSink(store, { track() {} }, cursor);
+  hook('cursor', { cursor_version: '3.32.4', conversation_id: 'h1', workspace_roots: ['/home/x/git/shop'], hook_event_name: 'afterMCPExecution' });
+  const t0 = Date.now();
+  cursor.pumpAll(t0 + 60_000);
+  assert.ok(store.get('cursor:h1').alive, 'still there after 1 minute');
+  cursor.pumpAll(t0 + 3 * 60_000);
+  assert.equal(store.get('cursor:h1').alive, false, 'gone after 3 quiet minutes');
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
 test('install-hooks: a path with a space is quoted, old entries from a moved repo disappear', async () => {
   const { execFileSync } = await import('node:child_process');
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-inst-'));

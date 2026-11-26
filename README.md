@@ -107,6 +107,7 @@ The hook command contains the absolute paths of this folder and of the Node that
 |---|---|
 | Port | `--port 5000` or `AGENT_OFFICE_PORT=5000`. If you change it, install the hooks with the same `--port`. |
 | Claude Code config folder | `CLAUDE_CONFIG_DIR`, the same variable Claude Code itself uses. Default `~/.claude`. |
+| Hook log | `AGENT_OFFICE_DEBUG=1` prints every incoming hook (event, session, and what it did or `ignored`). |
 
 ### Start it automatically
 

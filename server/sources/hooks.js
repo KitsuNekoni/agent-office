@@ -48,19 +48,29 @@ const claudeName = (n = '') => CURSOR_AS_CLAUDE[n] || n.charAt(0).toUpperCase() 
 /** Does this payload come from Cursor? (Cursor also sends through the Claude hooks.) */
 export const isCursorPayload = (src, p) => src === 'cursor' || !!(p.cursor_version || p.conversation_id);
 
-export function createHookSink(store, claude, cursor) {
+// Events that mean a Cursor chat is really working right now. Anything else (a tool result, session start,
+// notification) may come from an old or internal Cursor conversation and must not bring a chat back to life.
+const ACTIVITY = new Set(['prompt', 'tool', 'think']);
+
+export function createHookSink(store, claude, cursor, { log = null } = {}) {
   return function handle(src, payload) {
     if (!payload || typeof payload !== 'object') return;
     const t = Date.now();
     if (isCursorPayload(src, payload)) {
       const cid = payload.conversation_id || payload.session_id;
       if (!cid) return;
-      const id = cursor ? cursor.track(cid, { cwd: payload.workspace_roots?.[0] || payload.cwd || '', transcript: payload.transcript_path, t }) : 'cursor:' + cid;
       const evs = src === 'cursor' ? cursorHookEvents(payload, t) : claudeHookEvents({ ...payload, hook_event_name: claudeName(payload.hook_event_name) }, t);
-      for (const ev of evs) store.apply(id, ev);
+      const s = store.get('cursor:' + cid);
+      const asleep = !s || !s.alive || s.ended; // unknown, gone or finished
+      const keep = asleep ? evs.filter((ev) => ACTIVITY.has(ev.type) || (s && ['turnEnd', 'gone', 'idle'].includes(ev.type))) : evs;
+      log?.(`hook ${src} ${payload.hook_event_name} cursor:${String(cid).slice(0, 8)} ${keep.length ? keep.map((e) => e.type).join(',') : 'ignored'}`);
+      if (!keep.length) return;
+      const id = cursor ? cursor.track(cid, { cwd: payload.workspace_roots?.[0] || payload.cwd || '', transcript: payload.transcript_path, t }) : 'cursor:' + cid;
+      for (const ev of keep) store.apply(id, ev);
     } else if (src === 'claude') {
       const id = payload.session_id;
       if (!id) return;
+      log?.(`hook ${src} ${payload.hook_event_name} ${String(id).slice(0, 8)}`);
       if (!store.get(id)) claude.track(id, { cwd: payload.cwd, project: projectName(payload.cwd), transcript: payload.transcript_path, t });
       store.apply(id, { type: 'hook' });
       for (const ev of claudeHookEvents(payload, t)) store.apply(id, ev);
