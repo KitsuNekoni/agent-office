@@ -256,11 +256,11 @@
           c.strokeStyle = 'rgba(126,224,255,.5)'; c.setLineDash([1, 1.2]); c.lineWidth = 0.5; c.beginPath(); c.moveTo(p.x + 7, y - 2); c.lineTo(k.x + 32, k.y + 2); c.stroke(); c.setLineDash([]);
         }
         hits.push({ x: p.x - 8, y: y - 13, w: 16, h: 20, a });
-        labels.push({ a, x: p.x, y: y - 13, full: true });
+        labels.push({ a, x: p.x, y: y + 8.5, full: true }); // below the chair, not over the screens
       } else {
         standing(c, p.x, p.y, a.look, { walk: p.moving, t });
         hits.push({ x: p.x - 6, y: p.y - 21, w: 12, h: 21, a });
-        labels.push({ a, x: p.x, y: p.y - 21, full: false });
+        labels.push({ a, x: p.x, y: p.y + 2, full: false });
       }
     }
   }
@@ -269,7 +269,7 @@
   const view = document.getElementById('view'), cv = document.getElementById('cv'), ctx = cv.getContext('2d');
   let hover = null, pinned = null, last = performance.now(), frame = 0, s = 1, shownH = 0;
   const labelOf = (a) => (a.kind === 'ask' ? (a.guess ? 'seems to be waiting' : 'waiting for you') : KN[a.kind]);
-  function overlay(dpr, cw) {
+  function overlay(dpr, cw, ch) {
     const fs = Math.round(Math.max(10, Math.min(12, 11 * (cw / dpr) / 1000)) * dpr), bw = Math.max(1, Math.round(1.3 * dpr));
     const hot = (L) => L.a.key === hover || L.a.key === pinned;
     const placed = [], over = (x, y, w, h) => placed.some((q) => x < q.x + q.w && q.x < x + w && y < q.y + q.h && q.y < y + h);
@@ -279,15 +279,17 @@
       const nm = String(a.name).slice(0, 26);
       let text = (L.full || hv) ? `${nm} · ${labelOf(a)}` : nm;
       const box = () => { const w = ctx.measureText(text).width + fs * 0.9; return [w, Math.min(cw - w - 4, Math.max(4, cx - w / 2))]; };
-      let [w, x] = box(), y = Math.max(4, L.y * s - h - tail);
+      let [w, x] = box(), y = Math.min(ch - h - 4, L.y * s + tail); // label hangs below its person
       if (!hv && L.full && over(x, y, w, h)) { text = nm; [w, x] = box(); }
-      for (let k = 0; !hv && k < 2 && over(x, y, w, h); k++) y -= h * 0.75;
+      // Still overlapping a neighbour: shorten the name rather than push it onto the next row of consoles.
+      for (let n = nm.length - 1; !hv && n >= 8 && over(x, y, w, h); n--) { text = nm.slice(0, n) + '…'; [w, x] = box(); }
+      if (!hv && over(x, y, w, h)) y = Math.min(ch - h - 4, y + h * 0.75);
       placed.push({ x: x - 2, y: y - 2, w: w + 4, h: h + 4 });
       const col = a.kind === 'ask' ? '#ff8a3d' : a.kind === 'error' ? '#ff4d5e' : '#2de2b0';
       ctx.fillStyle = hv ? '#ffd84a' : col; rr(ctx, x - bw, y - bw, w + bw * 2, h + bw * 2, 4 * dpr + bw); ctx.fill();
       ctx.fillStyle = a.kind === 'ask' ? '#2a1408' : a.kind === 'error' ? '#2a0a10' : '#06141b'; rr(ctx, x, y, w, h, 4 * dpr); ctx.fill();
       const tx = Math.min(x + w - tail * 2, Math.max(x + tail * 2, cx));
-      ctx.beginPath(); ctx.moveTo(tx - tail, y + h - 0.5); ctx.lineTo(tx + tail, y + h - 0.5); ctx.lineTo(tx, y + h + tail); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(tx - tail, y + 0.5); ctx.lineTo(tx + tail, y + 0.5); ctx.lineTo(tx, y - tail); ctx.fill();
       ctx.fillStyle = a.kind === 'ask' ? '#ffd2b0' : a.kind === 'error' ? '#ffb3bb' : '#bff8e6';
       ctx.fillText(text, x + fs * 0.45, y + h / 2 + 0.5);
     });
@@ -335,7 +337,7 @@
     ctx.setTransform(s, 0, 0, s, 0, 0);
     try { draw(ctx, reduced ? 0 : nowMs / 1000, dt); } catch (err) { if (frame < 3) console.error(err); }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    overlay(dpr, cw);
+    overlay(dpr, cw, ch);
     frames++; tip();
     if (frame % 15 === 1) table();
     requestAnimationFrame(loop);
