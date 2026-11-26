@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { createStore } from './store.js';
 import { createClaudeSource } from './sources/claude.js';
 import { createCursorSource } from './sources/cursor.js';
+import { cursorEditorRunning } from './sources/cursor-app.js';
 import { createHookSink } from './sources/hooks.js';
 import { createUpdater } from './update.js';
 
@@ -27,7 +28,10 @@ export function startServer({ port = 4517, host = '127.0.0.1', home = os.homedir
   const payload = () => JSON.stringify({ now: Date.now(), lastHook, update: updater.status(), sessions: store.snapshot() });
   const send = (res, data) => res.write(`data: ${data}\n\n`);
 
+  let checking = false;
+  const checkEditor = () => { if (checking) return; checking = true; cursorEditorRunning().then(cursor.editorState, () => {}).finally(() => { checking = false; }); };
   const timers = [
+    setInterval(checkEditor, 5000),
     setInterval(() => { claude.scanRegistry(); }, 2000),
     setInterval(() => { claude.scanHeadless(); cursor.scan(); }, 5000),
     setInterval(() => { claude.pumpAll(); cursor.pumpAll(); store.tick(); }, 700),
@@ -35,6 +39,7 @@ export function startServer({ port = 4517, host = '127.0.0.1', home = os.homedir
     setInterval(() => { for (const c of clients) c.write(': ping\n\n'); }, 15000),
   ];
   claude.scanRegistry(); claude.scanHeadless(); cursor.scan(); claude.pumpAll(); cursor.pumpAll();
+  checkEditor();
   updater.start();
 
   const server = http.createServer((req, res) => {

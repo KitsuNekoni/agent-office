@@ -5,6 +5,7 @@ import { parseClaudeLine, parseCursorLine } from '../server/parse.js';
 import { createStore } from '../server/store.js';
 import { claudeHookEvents, cursorHookEvents, createHookSink } from '../server/sources/hooks.js';
 import { createCursorSource } from '../server/sources/cursor.js';
+import { isCursorEditor } from '../server/sources/cursor-app.js';
 import { compareVersions, createUpdater } from '../server/update.js';
 import { startServer } from '../server/index.js';
 import fs from 'node:fs';
@@ -246,6 +247,34 @@ test('cursor: a chat seen only through hooks leaves after 2 quiet minutes', () =
   cursor.pumpAll(t0 + 3 * 60_000);
   assert.equal(store.get('cursor:h1').alive, false, 'gone after 3 quiet minutes');
   fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('cursor: closing the editor sends its chats home, not the CLI ones', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-'));
+  fs.mkdirSync(path.join(home, '.cursor', 'chats', 'h', 'cli1'), { recursive: true });
+  const store = createStore();
+  const cursor = createCursorSource(store, { home });
+  const hook = createHookSink(store, { track() {} }, cursor);
+  const base = { cursor_version: '3.32.4', workspace_roots: ['/home/x/git/shop'] };
+  for (const id of ['ide1', 'cli1']) {
+    hook('cursor', { ...base, conversation_id: id, hook_event_name: 'afterMCPExecution' });
+    hook('cursor', { ...base, conversation_id: id, hook_event_name: 'stop', status: 'completed' });
+  }
+  const t = Date.now();
+  cursor.editorState(false); cursor.pumpAll(t);
+  assert.ok(store.get('cursor:ide1').alive, 'one closed check is not enough');
+  cursor.editorState(null); cursor.editorState(false); cursor.pumpAll(t);
+  assert.equal(store.get('cursor:ide1').alive, false, 'editor chat leaves');
+  assert.ok(store.get('cursor:cli1').alive, 'CLI chat stays');
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('cursor: recognises an editor window by its process', () => {
+  assert.ok(isCursorEditor('/opt/Cursor/cursor\0--no-sandbox'));
+  assert.ok(isCursorEditor('/home/a/.cursor-server/bin/x/node\0/home/a/.cursor-server/bin/x/out/bootstrap-fork\0--type=extensionHost'));
+  assert.ok(!isCursorEditor('/home/a/.cursor-server/bin/x/node /home/a/.cursor-server/bin/x/out/server-main.js --start-server'));
+  assert.ok(!isCursorEditor('/home/a/.cursor-server/bin/x/node bootstrap-fork --type=ptyHost'));
+  assert.ok(!isCursorEditor('/home/a/.local/bin/cursor-agent'));
 });
 
 test('install-hooks: a path with a space is quoted, old entries from a moved repo disappear', async () => {

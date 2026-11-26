@@ -16,6 +16,14 @@ export function createCursorSource(store, { home = os.homedir(), dir = path.join
   const root = dir;
   const tracked = new Map(); // id → { tail, dir, mtime, fresh }
   const dismissed = new Map(); // id → mtime when it disappeared; only comes back when the file changes again
+  let closedChecks = 0; // consecutive checks that found the Cursor editor closed
+
+  /** Result of cursorEditorRunning(): after two 'closed' answers in a row, editor chats leave the office. */
+  function editorState(open) {
+    if (open === null) return;
+    closedChecks = open ? 0 : closedChecks + 1;
+  }
+  const editorClosed = () => closedChecks >= 2;
 
   function cliChats() {
     const out = new Map();
@@ -34,6 +42,7 @@ export function createCursorSource(store, { home = os.homedir(), dir = path.join
     if (tracked.has(key) && store.get(key)) return key;
     dismissed.delete(key);
     const chat = cliChats().get(id);
+    if (!chat) closedChecks = 0; // a hook from the editor: it is open
     const slug = transcript ? path.basename(path.dirname(path.dirname(path.dirname(transcript)))) : '';
     store.upsert(key, { source: 'cursor', client: chat ? 'cursor-cli' : 'cursor', cwd, project: projectName(cwd || slug), name: 'chat ' + id.slice(0, 6), t });
     let mtime = t; try { mtime = fs.statSync(transcript).mtimeMs; } catch {}
@@ -89,6 +98,11 @@ export function createCursorSource(store, { home = os.homedir(), dir = path.join
       const age = t - Math.max(tr.mtime, s.last); // hook activity also counts as alive
       const hookOnly = !fs.existsSync(tr.tail.path);
       const stale = s.ended ? age > IDLE_MS : age > (hookOnly ? HOOK_ONLY_MS : ACTIVE_MS);
+      if (s.client === 'cursor' && editorClosed()) { // editor closed: its chats are gone too
+        if (tr.fresh) { store.sessions.delete(key); tracked.delete(key); }
+        else if (s.alive) store.setAlive(key, false, t);
+        dismissed.set(key, tr.mtime); tr.fresh = false; continue;
+      }
       if (stale && tr.fresh) { store.sessions.delete(key); tracked.delete(key); dismissed.set(key, tr.mtime); continue; } // already done at startup: don't show
       tr.fresh = false;
       if (s.alive && stale) { store.setAlive(key, false, t); dismissed.set(key, tr.mtime); }
@@ -96,5 +110,5 @@ export function createCursorSource(store, { home = os.homedir(), dir = path.join
     }
   }
 
-  return { scan, pumpAll, track };
+  return { scan, pumpAll, track, editorState };
 }
