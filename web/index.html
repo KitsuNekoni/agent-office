@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Office</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%230a141a'/%3E%3Crect x='3' y='4' width='10' height='6' rx='1' fill='none' stroke='%233cf0b4' stroke-width='1.4'/%3E%3Crect x='5' y='11.5' width='6' height='1.5' fill='%233cf0b4'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&display=swap" rel="stylesheet">
+<style>
+:root{color-scheme:dark;--bg:#0a141a;--ink:#e6f2ef;--soft:#8fa9a6;--panel:#11212a;--line:#1e3a47;--mint:#3cf0b4;--ask:#ff8a3d}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 Manrope,system-ui,sans-serif;overflow-x:clip}
+.band{padding:clamp(16px,2.5vw,32px) max(3vw,16px)}
+.wrap{max-width:1400px;margin:0 auto}
+header.band{padding-bottom:4px;display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 18px}
+h1{font-size:clamp(22px,2.6vw,30px);line-height:1.1;margin:0;font-weight:800;letter-spacing:-.02em}
+h2{font-size:clamp(18px,2vw,22px);line-height:1.15;margin:0 0 10px;font-weight:800}
+.note{color:var(--soft);font-size:14px;margin:0}
+.status{display:inline-flex;align-items:center;gap:8px}
+.status .dot{width:8px;height:8px}
+.view{position:relative;width:100%;aspect-ratio:400/250;margin:0 auto;border-radius:12px;overflow:hidden;background:#071016;box-shadow:0 0 0 1px var(--line),0 30px 60px -30px #000}
+.view canvas{position:absolute;inset:0;width:100%;height:100%}
+.tip{position:absolute;z-index:2;width:270px;padding:10px 12px;border-radius:8px;background:#06141b;border:1.5px solid var(--mint);color:var(--ink);font-size:14px;line-height:1.4;box-shadow:0 10px 30px #000a;pointer-events:none;transform:translate(-50%,calc(-100% - 12px))}
+.tip[hidden]{display:none}.tip b{font-size:15px}.tip .k{color:var(--soft)}.tip ol{margin:6px 0 0;padding-left:18px;color:#b9cbc7;font-size:13px}
+.cols{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);gap:clamp(20px,3vw,44px);align-items:start}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:15px}
+th{text-align:left;font-weight:700;color:var(--soft);font-size:13px;padding:6px 8px;border-bottom:1.5px solid var(--line)}
+td{padding:8px;border-bottom:1px solid #15303b;vertical-align:top}
+td:first-child{white-space:nowrap}
+td.t{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+td.empty{color:var(--soft);text-align:center;padding:18px}
+.chip{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.dot{width:9px;height:9px;border-radius:50%;flex:none;display:inline-block}
+tr.ask td{background:#ff8a3d14}tr.err td{background:#ff4d5e14}tr.gone td{opacity:.45}
+.legend{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 18px;margin:0}
+.legend div{display:flex;gap:8px;align-items:baseline}.legend dt{font-weight:700}.legend dd{margin:0;color:var(--soft);font-size:14px}
+@media(max-width:900px){.cols{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:600px){.legend{grid-template-columns:minmax(0,1fr)}
+ .stack thead{display:none}.stack tr{display:grid;padding-block:10px;border-bottom:1px solid #15303b}.stack td{display:flow-root;border:0;padding:3px 0;padding-inline-start:7em;text-align:start}.stack td::before{content:attr(data-l);float:inline-start;width:6.5em;margin-inline-start:-7em;color:var(--soft);font-size:13px}}
+</style>
+</head>
+<body>
+<header class="band wrap">
+  <h1>Agent Office</h1>
+  <p class="note status"><span class="dot" id="conn-dot" style="background:#4a6470"></span><span id="status">verbinden…</span></p>
+</header>
+
+<section class="band wrap" style="padding-top:10px" aria-label="Controlekamer">
+  <div class="view" id="view"><canvas id="cv" aria-label="Live controlekamer met alle agentsessies op deze PC"></canvas><div class="tip" id="tip" hidden></div></div>
+</section>
+
+<section class="band wrap cols">
+  <div>
+    <h2>Alle sessies</h2>
+    <div class="scroll"><table class="stack"><thead><tr><th>Agent</th><th>Client</th><th>Project</th><th>Status</th><th>Bezig met</th><th>Sinds</th></tr></thead><tbody id="rows"></tbody></table></div>
+  </div>
+  <div>
+    <h2>Wat de kleuren betekenen</h2>
+    <dl class="legend" id="legend"></dl>
+  </div>
+</section>
+<script src="office.js"></script>
+</body>
+</html>

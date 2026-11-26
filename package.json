@@ -1,0 +1,15 @@
+{
+  "name": "agent-office",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Live mission control voor alle agents op deze PC (Claude Code, Cursor)",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "bin": { "agent-office": "bin/agent-office.js" },
+  "scripts": {
+    "start": "node bin/agent-office.js",
+    "test": "node --test test/*.test.js",
+    "hooks:install": "node bin/install-hooks.js",
+    "hooks:remove": "node bin/install-hooks.js --remove"
+  }
+}
