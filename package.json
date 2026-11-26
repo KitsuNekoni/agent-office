@@ -1,6 +1,6 @@
 {
   "name": "agent-office",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "description": "Live mission control for every agent on your machine (Claude Code, Cursor)",
   "license": "MIT",

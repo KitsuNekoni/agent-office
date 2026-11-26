@@ -31,7 +31,7 @@ export function createUpdater({ root, port = 4517, run = exec, enabled = true, o
   const readVersion = () => { try { return JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version || '?'; } catch { return '?'; } };
   const st = { version: readVersion(), remote: null, available: false, git: false, state: 'idle', error: '' };
   const git = (...args) => run('git', ['-C', root, ...args]);
-  let timer = null;
+  let timer = null, running = null, lastCheck = 0;
 
   function set(patch) {
     Object.assign(st, patch);
@@ -40,7 +40,15 @@ export function createUpdater({ root, port = 4517, run = exec, enabled = true, o
   }
   const status = () => ({ ...st });
 
-  async function check() {
+  /** Check upstream; a check already under way is shared. With { recent }, a check younger than that many ms is reused. */
+  function check({ recent = 0 } = {}) {
+    if (running) return running;
+    if (recent && Date.now() - lastCheck < recent) return Promise.resolve(status());
+    running = doCheck().finally(() => { running = null; lastCheck = Date.now(); });
+    return running;
+  }
+
+  async function doCheck() {
     if (!enabled || st.state === 'updating' || st.state === 'updated') return status();
     try { await git('rev-parse', '--abbrev-ref', '@{u}'); } catch { set({ git: false, state: 'idle' }); return status(); } // no git checkout or no upstream
     set({ git: true, state: 'checking' });
@@ -71,7 +79,7 @@ export function createUpdater({ root, port = 4517, run = exec, enabled = true, o
   function start() {
     if (!enabled) return;
     check();
-    timer = setInterval(check, CHECK_EVERY); timer.unref?.();
+    timer = setInterval(() => check(), CHECK_EVERY); timer.unref?.();
   }
   const stop = () => clearInterval(timer);
 

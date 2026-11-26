@@ -393,6 +393,26 @@ test('update: higher upstream version → available; local changes or a failing 
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+test('update: page checks share a running check and reuse a recent one', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-'));
+  fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ version: '0.3.1' }));
+  let fetches = 0;
+  const run = async (cmd, args) => {
+    if (args.includes('fetch')) { fetches++; await new Promise((r) => setTimeout(r, 20)); }
+    if (args.includes('show')) return JSON.stringify({ version: '0.3.2' });
+    return 'origin/main';
+  };
+  const u = createUpdater({ root, run });
+  const [a, b] = await Promise.all([u.check({ recent: 30_000 }), u.check({ recent: 30_000 })]);
+  assert.equal(fetches, 1, 'two page loads at once: one git fetch');
+  assert.ok(a.available && b.available);
+  await u.check({ recent: 30_000 });
+  assert.equal(fetches, 1, 'a check from seconds ago is reused');
+  await u.check();
+  assert.equal(fetches, 2, 'the timer always checks');
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 test('server: the update endpoints need the page header', async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-'));
   let applied = 0;

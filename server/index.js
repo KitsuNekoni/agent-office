@@ -60,7 +60,7 @@ export function startServer({ port = 4517, host = '127.0.0.1', home = os.homedir
       // A custom header can't be sent cross-site without a CORS preflight, which we never allow: no other website can trigger this.
       if (req.headers['x-agent-office'] !== '1') return res.writeHead(403).end('forbidden');
       req.resume();
-      const job = url.pathname === '/api/update' ? updater.apply() : updater.check();
+      const job = url.pathname === '/api/update' ? updater.apply() : updater.check({ recent: 30_000 }); // page loads and clicks: at most one git fetch per 30 s
       job.then((r) => {
         res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(updater.status()));
         if (r?.ok && restart) setTimeout(restart, 300); // let the answer (and the 'updated' status) reach the page first

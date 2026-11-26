@@ -47,18 +47,29 @@
   // ── version + update ──────────────────────────────────────────
   let pageVersion = '', updating = false;
   const updBtn = document.getElementById('upd'), updMsg = document.getElementById('upd-msg');
+  const verEl = document.getElementById('ver');
+  let msgTimer = 0;
+  const checkNow = () => fetch('/api/update/check', { method: 'POST', headers: { 'x-agent-office': '1' } }).then((r) => r.json());
   function showUpdate(u) {
     // A restarted server with other code: load the new page too.
-    if (!pageVersion) pageVersion = u.version;
+    if (!pageVersion) { pageVersion = u.version; checkNow().catch(() => {}); } // opening or refreshing the page looks for an update
     else if (u.version !== pageVersion && u.state !== 'updated') { location.reload(); return; }
-    document.getElementById('ver').textContent = `v${u.version}`;
+    verEl.textContent = `v${u.version}`;
     const busy = updating || u.state === 'updating' || u.state === 'updated';
     updBtn.hidden = !u.available && !busy;
     updBtn.disabled = busy;
     updBtn.textContent = u.state === 'updated' ? 'restarting…' : busy ? 'updating…' : `Update to v${u.remote}`;
     updBtn.title = u.available ? 'git pull, refresh the hooks if installed, and restart the office' : '';
-    updMsg.textContent = u.state === 'error' || (u.state === 'updated' && u.error) ? u.error : '';
+    if (u.state === 'error' || (u.state === 'updated' && u.error)) updMsg.textContent = u.error;
+    else if (updMsg.textContent !== 'checking…' && !msgTimer) updMsg.textContent = '';
   }
+  verEl.addEventListener('click', async () => { // click the version: look for an update now
+    clearTimeout(msgTimer); msgTimer = 0; updMsg.textContent = 'checking…';
+    try {
+      const u = await checkNow(); showUpdate(u);
+      if (!u.available && u.state !== 'error') { updMsg.textContent = u.git ? 'up to date' : 'no git checkout: update by hand'; msgTimer = setTimeout(() => { msgTimer = 0; updMsg.textContent = ''; }, 3000); }
+    } catch { updMsg.textContent = 'no answer from the server'; }
+  });
   updBtn.addEventListener('click', async () => {
     updating = true; updBtn.disabled = true; updBtn.textContent = 'updating…'; updMsg.textContent = '';
     try {
