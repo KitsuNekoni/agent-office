@@ -30,6 +30,8 @@ Follow these in order. Run commands yourself where you can. **Ask the user first
    git -C ~/agent-office pull
    ```
 
+   Once it runs, the page shows its version top right. When GitHub has a newer version, an **Update** button appears there: it pulls, refreshes the hooks if they're installed, and restarts the office.
+
 4. **Start it in the background and check it runs.**
 
    ```sh
@@ -107,6 +109,7 @@ The hook command contains the absolute paths of this folder and of the Node that
 |---|---|
 | Port | `--port 5000` or `AGENT_OFFICE_PORT=5000`. If you change it, install the hooks with the same `--port`. |
 | Claude Code config folder | `CLAUDE_CONFIG_DIR`, the same variable Claude Code itself uses. Default `~/.claude`. |
+| Update check | On by default: every 6 hours a `git fetch` of the repo's own upstream. `AGENT_OFFICE_NO_UPDATE_CHECK=1` turns it off (the version still shows). |
 | Hook log | `AGENT_OFFICE_DEBUG=1` prints every incoming hook (event, session, and what it did or `ignored`). |
 
 ### Start it automatically
@@ -120,6 +123,17 @@ Agent Office is a plain foreground process. Start it the way you start other sma
 
 A second copy notices the port is taken and exits.
 
+### Updating
+
+The page shows the running version. The office compares the `version` in its `package.json` with the one on the upstream branch (`git fetch`, then `git show @{u}:package.json`). When the upstream one is higher, an **Update** button appears. It:
+
+1. refuses if the checkout has local changes to tracked files ("local changes, update by hand"),
+2. runs `git pull --ff-only`,
+3. runs `bin/install-hooks.js --if-installed --port <port>`: the hooks are refreshed with the new installer, but only if they were installed before,
+4. restarts the office with the same arguments and environment, and the page reloads.
+
+Without a git checkout (or without an upstream branch) only the version shows. **Releasing:** raise `version` in `package.json` with every change you want other machines to get; otherwise the button doesn't appear.
+
 ## Platforms
 
 | Platform | Status |
@@ -132,7 +146,7 @@ If Claude Code runs inside WSL and Cursor on Windows, run Agent Office where the
 
 ## Privacy
 
-The server listens on `127.0.0.1` only and never sends anything anywhere. It reads transcripts and session files from `~/.claude` and `~/.cursor`, and shows prompts, tool names and file names to whoever can open the page on your machine. It never writes to those folders, except `hooks install`/`hooks remove`, which only edit the two settings files above.
+The server listens on `127.0.0.1` only and never sends anything anywhere. Its only outgoing traffic is the update check: a `git fetch` from the repo's own upstream every 6 hours (turn it off with `AGENT_OFFICE_NO_UPDATE_CHECK=1`). The update endpoints only accept requests from the page itself (custom header, no CORS), so other websites can't trigger an update. It reads transcripts and session files from `~/.claude` and `~/.cursor`, and shows prompts, tool names and file names to whoever can open the page on your machine. It never writes to those folders, except `hooks install`/`hooks remove`, which only edit the two settings files above.
 
 ## Development
 
@@ -160,5 +174,6 @@ The Claude Code hooks run with `async: true`, and the relay (`bin/hook.js`) give
 - `server/parse.js`: transcript lines (Claude, Cursor) → events
 - `server/store.js`: session model and state machine (ask > error > active > idle; gone sessions stay visible for 30 s)
 - `server/sources/`: registry, transcript tailing, hook payloads
-- `server/index.js`: static `web/`, `GET /events` (SSE), `GET /api/sessions`, `POST /hook/:src`
+- `server/index.js`: static `web/`, `GET /events` (SSE), `GET /api/sessions`, `POST /hook/:src`, `POST /api/update` and `/api/update/check`
+- `server/update.js`: version, update check against the upstream branch, update (pull, hooks, then the CLI restarts)
 - `web/office.js`: the control room (canvas); grows with the number of sessions

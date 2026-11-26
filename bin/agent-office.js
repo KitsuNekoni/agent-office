@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -35,7 +35,18 @@ const port = Number(opt('--port') || process.env.AGENT_OFFICE_PORT || 4517);
 if (!Number.isInteger(port) || port < 1 || port > 65535) { console.error(`Invalid port: ${opt('--port') || process.env.AGENT_OFFICE_PORT}`); process.exit(1); }
 
 const { startServer } = await import('../server/index.js');
-const { server, close } = startServer({ port });
+// After an update: free the port, start the new code with the same arguments, environment and output, then stop.
+let restarting = false;
+function restart() {
+  if (restarting) return;
+  restarting = true;
+  const relaunch = () => { spawn(process.execPath, process.argv.slice(1), { detached: true, stdio: 'inherit', env: process.env }).unref(); process.exit(0); };
+  server.once('close', relaunch);
+  setTimeout(relaunch, 3000).unref(); // a hanging connection must not block the restart
+  close();
+  server.closeAllConnections();
+}
+const { server, close } = startServer({ port, restart });
 server.on('error', (e) => {
   if (e.code === 'EADDRINUSE') { console.error(`Port ${port} is already in use: is Agent Office already running? Open http://localhost:${port} or pick another port with --port.`); process.exit(1); }
   throw e;

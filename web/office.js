@@ -25,6 +25,7 @@
       if (!a) { a = { key: s.id, look: lookOf(s.id), desk: deskFor(s.id) }; AG.set(s.id, a); }
       Object.assign(a, { name: s.name, client: CLIENT[s.client] ? s.client : 'cli', project: s.project, kind: s.kind, txt: s.txt, since: s.since, recent: s.recent, history: s.history, subs: s.subs, guess: s.guess, removeAt: 0 });
     }
+    if (d.update) showUpdate(d.update);
     for (const a of AG.values()) if (!seen.has(a.key) && !a.removeAt) { a.kind = 'gone'; a.txt = ''; a.removeAt = now() + 8000; a.history = [...(a.history || []), { t: now(), kind: 'gone' }]; }
   }
   function prune() {
@@ -42,6 +43,29 @@
     es.onerror = () => { connected = false; };
   }
   connect();
+
+  // ── version + update ──────────────────────────────────────────
+  let pageVersion = '', updating = false;
+  const updBtn = document.getElementById('upd'), updMsg = document.getElementById('upd-msg');
+  function showUpdate(u) {
+    // A restarted server with other code: load the new page too.
+    if (!pageVersion) pageVersion = u.version;
+    else if (u.version !== pageVersion && u.state !== 'updated') { location.reload(); return; }
+    document.getElementById('ver').textContent = `v${u.version}`;
+    const busy = updating || u.state === 'updating' || u.state === 'updated';
+    updBtn.hidden = !u.available && !busy;
+    updBtn.disabled = busy;
+    updBtn.textContent = u.state === 'updated' ? 'restarting…' : busy ? 'updating…' : `Update to v${u.remote}`;
+    updBtn.title = u.available ? 'git pull, refresh the hooks if installed, and restart the office' : '';
+    updMsg.textContent = u.state === 'error' || (u.state === 'updated' && u.error) ? u.error : '';
+  }
+  updBtn.addEventListener('click', async () => {
+    updating = true; updBtn.disabled = true; updBtn.textContent = 'updating…'; updMsg.textContent = '';
+    try {
+      const r = await fetch('/api/update', { method: 'POST', headers: { 'x-agent-office': '1' } });
+      const u = await r.json(); updating = false; showUpdate(u);
+    } catch { updating = false; updMsg.textContent = 'update failed: no answer from the server'; updBtn.disabled = false; }
+  });
 
   // No break room: idle agents stay at their console with a coffee.
   const zoneOf = (k) => (k === 'gone' ? null : k === 'start' ? 'door' : 'desk');

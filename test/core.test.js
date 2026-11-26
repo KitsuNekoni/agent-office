@@ -5,6 +5,8 @@ import { parseClaudeLine, parseCursorLine } from '../server/parse.js';
 import { createStore } from '../server/store.js';
 import { claudeHookEvents, cursorHookEvents, createHookSink } from '../server/sources/hooks.js';
 import { createCursorSource } from '../server/sources/cursor.js';
+import { compareVersions, createUpdater } from '../server/update.js';
+import { startServer } from '../server/index.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -304,4 +306,133 @@ test('hook.js relays the payload to the server and answers Cursor with {}', asyn
   srv.close();
   assert.deepEqual(got.map((g) => g[0]), ['/hook/claude', '/hook/cursor']);
   assert.equal(JSON.parse(got[0][1]).session_id, 's1');
+});
+
+test('update: version comparison', () => {
+  assert.equal(compareVersions('0.10.0', '0.9.9'), 1);
+  assert.equal(compareVersions('1.2.3', '1.2.3'), 0);
+  assert.equal(compareVersions('v1.2', '1.2.0'), 0);
+  assert.equal(compareVersions('0.2.9', '0.3.0'), -1);
+  assert.equal(compareVersions(null, '0.0.1'), -1);
+});
+
+/** A fake git: answers by subcommand; a function answer can throw. */
+function fakeRun(answers, calls = []) {
+  return async (cmd, args) => {
+    const key = cmd === 'git' ? args[2] : 'node';
+    calls.push(key);
+    const a = answers[key];
+    if (a instanceof Error) throw a;
+    return typeof a === 'function' ? a(args) : a ?? '';
+  };
+}
+
+test('update: no git checkout means version only, never a button', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-up-'));
+  fs.writeFileSync(path.join(root, 'package.json'), J({ version: '0.3.0' }));
+  const u = createUpdater({ root, run: fakeRun({ 'rev-parse': new Error('not a git repository') }) });
+  const st = await u.check();
+  assert.equal(st.version, '0.3.0');
+  assert.equal(st.available, false);
+  assert.equal((await u.apply()).ok, false);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('update: higher upstream version → available; local changes or a failing pull block it', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-up-'));
+  fs.writeFileSync(path.join(root, 'package.json'), J({ version: '0.3.0' }));
+  const answers = { 'rev-parse': 'origin/main', show: J({ version: '0.4.0' }), status: ' M server/index.js\n' };
+  const calls = [];
+  const u = createUpdater({ root, run: fakeRun(answers, calls) });
+  let st = await u.check();
+  assert.equal(st.remote, '0.4.0');
+  assert.equal(st.available, true);
+  assert.equal((await u.apply()).ok, false);
+  assert.equal(u.status().error, 'local changes, update by hand');
+  assert.ok(!calls.includes('pull'), 'no pull with local changes');
+  answers.status = ''; answers.pull = Object.assign(new Error('x'), { stderr: 'fatal: Not possible to fast-forward, aborting.' });
+  assert.equal((await u.apply()).ok, false);
+  assert.match(u.status().error, /fast-forward/);
+  // A good pull: hooks refreshed, then 'updated' with the new version from disk.
+  answers.pull = () => { fs.writeFileSync(path.join(root, 'package.json'), J({ version: '0.4.0' })); return ''; };
+  assert.equal((await u.apply()).ok, true);
+  st = u.status();
+  assert.equal(st.state, 'updated');
+  assert.equal(st.version, '0.4.0');
+  assert.equal(st.available, false);
+  assert.equal(calls.at(-1), 'node', 'the hook installer ran after the pull');
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('server: the update endpoints need the page header', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-'));
+  let applied = 0;
+  const updater = { status: () => ({ version: '0.3.0', available: false }), check: async () => ({}), apply: async () => { applied++; return { ok: false }; }, start() {}, stop() {} };
+  const { server, close } = startServer({ port: 0, home, log: () => {}, updater });
+  await new Promise((r) => server.once('listening', r));
+  const url = `http://127.0.0.1:${server.address().port}`;
+  assert.equal((await fetch(`${url}/api/update`, { method: 'POST' })).status, 403);
+  assert.equal(applied, 0);
+  const r = await fetch(`${url}/api/update`, { method: 'POST', headers: { 'x-agent-office': '1' } });
+  assert.equal(r.status, 200);
+  assert.equal((await r.json()).version, '0.3.0');
+  assert.equal(applied, 1);
+  assert.equal(JSON.parse(await (await fetch(`${url}/api/sessions`)).text()).update.version, '0.3.0');
+  close(); server.closeAllConnections();
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('install-hooks --if-installed: skips without our hooks, refreshes old ones', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-inst-'));
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  fs.mkdirSync(path.join(home, '.cursor'), { recursive: true });
+  const env = { ...process.env, HOME: home, USERPROFILE: home };
+  delete env.CLAUDE_CONFIG_DIR; delete env.AGENT_OFFICE_PORT;
+  const installer = new URL('../bin/install-hooks.js', import.meta.url).pathname;
+  const run = (...a) => execFileSync(process.execPath, [installer, ...a], { env }).toString();
+  const claudeFile = path.join(home, '.claude', 'settings.json'), cursorFile = path.join(home, '.cursor', 'hooks.json');
+  fs.writeFileSync(claudeFile, J({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo mine' }] }] } }));
+  assert.match(run('--if-installed', '--port', '5000'), /not installed, skipped/);
+  assert.equal(fs.readFileSync(claudeFile, 'utf8'), J({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo mine' }] }] } }));
+  assert.ok(!fs.existsSync(cursorFile), 'Cursor file not created');
+  // Only the old shell relay in Cursor: both files get the current relay, on the given port.
+  fs.writeFileSync(cursorFile, J({ version: 1, hooks: { stop: [{ command: '/old/agent-office/bin/hook.sh cursor' }] } }));
+  run('--if-installed', '--port', '5000');
+  const cu = JSON.parse(fs.readFileSync(cursorFile, 'utf8'));
+  assert.deepEqual(cu.hooks.stop.map((h) => h.command), [`${process.execPath} ${path.join(path.dirname(installer), 'hook.js')} cursor 5000`]);
+  const cl = JSON.parse(fs.readFileSync(claudeFile, 'utf8'));
+  assert.ok(cl.hooks.Stop.flatMap((g) => g.hooks).some((h) => h.command.endsWith('hook.js claude 5000')));
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('update: end to end with real git, a newer upstream is pulled and the hooks refreshed', async () => {
+  const { execFileSync, execFile } = await import('node:child_process');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-git-'));
+  const origin = path.join(tmp, 'origin.git'), work = path.join(tmp, 'work'), clone = path.join(tmp, 'clone'), home = path.join(tmp, 'home');
+  fs.mkdirSync(path.join(home, '.cursor'), { recursive: true });
+  // One clean environment for every git and node call: no global git config (autocrlf etc.) from the real home.
+  const env = { ...process.env, HOME: home, USERPROFILE: home, GIT_TERMINAL_PROMPT: '0', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' };
+  delete env.CLAUDE_CONFIG_DIR; delete env.AGENT_OFFICE_PORT;
+  const sh = (...a) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { env, stdio: 'pipe' }).toString();
+  const git = (cwd, ...a) => sh('-C', cwd, ...a);
+  sh('init', '-q', '--bare', '-b', 'main', origin);
+  sh('clone', '-q', origin, work);
+  fs.mkdirSync(path.join(work, 'bin'));
+  for (const f of ['install-hooks.js', 'hook.js']) fs.copyFileSync(new URL(`../bin/${f}`, import.meta.url), path.join(work, 'bin', f));
+  fs.writeFileSync(path.join(work, 'package.json'), J({ version: '0.3.0' }));
+  git(work, 'add', '.'); git(work, 'commit', '-qm', 'v0.3.0'); git(work, 'push', '-q', 'origin', 'HEAD:main');
+  sh('clone', '-q', origin, clone);
+  fs.writeFileSync(path.join(work, 'package.json'), J({ version: '0.4.0' }));
+  git(work, 'commit', '-qam', 'v0.4.0'); git(work, 'push', '-q', 'origin', 'HEAD:main');
+  fs.writeFileSync(path.join(home, '.cursor', 'hooks.json'), J({ version: 1, hooks: { stop: [{ command: '/old/agent-office/bin/hook.sh cursor' }] } }));
+  const run = (cmd, args) => new Promise((res, rej) => execFile(cmd, args, { env }, (e, out) => (e ? rej(e) : res(String(out)))));
+  const u = createUpdater({ root: clone, port: 4600, run });
+  assert.equal((await u.check()).available, true);
+  assert.equal((await u.apply()).ok, true, u.status().error);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(clone, 'package.json'), 'utf8')).version, '0.4.0');
+  assert.equal(u.status().version, '0.4.0');
+  const cu = JSON.parse(fs.readFileSync(path.join(home, '.cursor', 'hooks.json'), 'utf8'));
+  assert.deepEqual(cu.hooks.stop.map((h) => h.command), [`${process.execPath} ${path.join(clone, 'bin', 'hook.js')} cursor 4600`]);
+  fs.rmSync(tmp, { recursive: true, force: true });
 });

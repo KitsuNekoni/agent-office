@@ -4,7 +4,8 @@
 //   ~/.cursor/hooks.json     (Cursor; only 'after' events and stop, which decide nothing)
 // Existing hooks are kept. Our own entries are recognised by the path of the relay (bin/hook.js, or the older bin/hook.sh).
 // Before each change a backup is written next to the file (<file>.agent-office.bak).
-// Options: --remove, --dry-run, --port <n> (default: $AGENT_OFFICE_PORT or 4517).
+// Options: --remove, --dry-run, --port <n> (default: $AGENT_OFFICE_PORT or 4517),
+//   --if-installed (only reinstall when our hooks are already in one of the files; used after an update).
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -12,9 +13,12 @@ import { fileURLToPath } from 'node:url';
 
 const HOOK = path.join(path.dirname(fileURLToPath(import.meta.url)), 'hook.js');
 const home = os.homedir();
+const CLAUDE_FILE = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(home, '.claude'), 'settings.json');
+const CURSOR_FILE = path.join(home, '.cursor', 'hooks.json');
 const args = process.argv.slice(2);
 const remove = args.includes('--remove');
 const dry = args.includes('--dry-run');
+const ifInstalled = args.includes('--if-installed');
 const portArg = args.includes('--port') ? args[args.indexOf('--port') + 1] : process.env.AGENT_OFFICE_PORT;
 if (portArg && !/^\d+$/.test(portArg)) { console.error(`Invalid port: ${portArg}`); process.exit(1); }
 const PORT = portArg && portArg !== '4517' ? ` ${portArg}` : '';
@@ -43,7 +47,7 @@ function writeJson(file, data) {
 }
 
 function claude() {
-  const file = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(home, '.claude'), 'settings.json');
+  const file = CLAUDE_FILE;
   const s = readJson(file, {});
   const hooks = s.hooks && typeof s.hooks === 'object' ? s.hooks : {};
   for (const ev of Object.keys(hooks)) {
@@ -57,7 +61,7 @@ function claude() {
 }
 
 function cursor() {
-  const file = path.join(home, '.cursor', 'hooks.json');
+  const file = CURSOR_FILE;
   const s = readJson(file, { version: 1, hooks: {} });
   s.version ||= 1;
   const hooks = s.hooks && typeof s.hooks === 'object' ? s.hooks : {};
@@ -71,6 +75,15 @@ function cursor() {
   writeJson(file, s);
   console.log(`${remove ? 'Removed from' : 'Installed in'} ${file}`);
 }
+
+/** Are our hooks in either file? */
+function installed() {
+  const hooksOf = (file) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')).hooks || {}; } catch { return {}; } };
+  const claudeCmds = Object.values(hooksOf(CLAUDE_FILE)).flat().flatMap((g) => g?.hooks || []).map((h) => h?.command);
+  const cursorCmds = Object.values(hooksOf(CURSOR_FILE)).flat().map((h) => h?.command);
+  return [...claudeCmds, ...cursorCmds].some(ours);
+}
+if (ifInstalled && !remove && !installed()) { console.log('Hooks not installed, skipped.'); process.exit(0); }
 
 try { claude(); cursor(); } catch (e) { console.error(e.message); process.exit(1); }
 if (!remove) console.log('New Claude Code and Cursor sessions now send events to Agent Office. Sessions that are already running pick up the hooks after a restart.');
