@@ -4,12 +4,78 @@ Live mission control for every agent on your machine. Each session is an operato
 
 Works with Claude Code (terminal, IDE extensions, the Claude app over SSH, headless `claude -p`) and Cursor (IDE and the `agent` CLI).
 
-## Install
+## Install with an AI assistant
+
+Give your coding assistant (Claude Code, Cursor, …) the link to this repository and ask it to install Agent Office. The steps below are written for that assistant.
+
+### Steps for the AI assistant
+
+Follow these in order. Run commands yourself where you can. **Ask the user first** before installing Node, editing their agent settings (hooks) or editing their shell profile (autostart).
+
+1. **Pick the environment.** Install Agent Office in the same environment the user's agents run in, because it reads `~/.claude` and `~/.cursor` from the home folder of that environment.
+   - Claude Code in WSL (also when the Claude desktop app connects to WSL over SSH): install **inside WSL**.
+   - Claude Code or Cursor on macOS, Linux or Windows itself: install there.
+   - Check with `ls -d ~/.claude ~/.cursor` (PowerShell: `Test-Path $HOME\.claude, $HOME\.cursor`). If agents run both in WSL and on Windows, ask which side matters most: one office only sees one home folder.
+   - Native Windows is untested. Prefer WSL if the user has it.
+
+2. **Check Node.js 22 or newer:** `node --version`. If it's missing or older, ask the user, then install it:
+   - WSL/Linux/macOS: [nvm](https://github.com/nvm-sh/nvm), then `nvm install 22`. On macOS, `brew install node` also works.
+   - Windows: `winget install OpenJS.NodeJS.LTS`, then open a new terminal.
+
+3. **Get the code.** `git` is the only other requirement. There's nothing to `npm install`: Agent Office has no dependencies.
+
+   ```sh
+   git clone https://github.com/KitsuNekoni/agent-office.git ~/agent-office
+   # already there? update instead:
+   git -C ~/agent-office pull
+   ```
+
+4. **Start it in the background and check it runs.**
+
+   ```sh
+   (node ~/agent-office/bin/agent-office.js >/dev/null 2>&1 &)
+   sleep 1; curl -s http://127.0.0.1:4517/health          # prints: ok
+   ```
+
+   PowerShell:
+
+   ```powershell
+   Start-Process node -ArgumentList "$HOME\agent-office\bin\agent-office.js" -WindowStyle Hidden
+   (Invoke-WebRequest http://127.0.0.1:4517/health -UseBasicParsing).Content   # ok
+   ```
+
+   If the port is taken, an office is probably already running: `curl` then also prints `ok`. To use another port, add `--port 5000` and use that port everywhere below.
+
+5. **Check that it sees agents.** Your own session is an agent, so `curl -s http://127.0.0.1:4517/api/sessions` should list at least one session. If the list is empty, you're probably in the wrong environment (see step 1).
+
+6. **Hooks (optional, ask first).** Hooks make "waiting for you" exact instead of a guess. They add entries to `~/.claude/settings.json` and `~/.cursor/hooks.json`, back up both files and leave existing hooks alone. Explain that to the user and ask:
+
+   ```sh
+   node ~/agent-office/bin/agent-office.js hooks install       # add --port N if you changed it
+   ```
+
+   Sessions that are already running pick up the hooks after they restart.
+
+7. **Autostart (optional, ask first).** Add this line to the end of `~/.bashrc` or `~/.zshrc`. If Node comes from nvm, put it after the nvm lines:
+
+   ```sh
+   (node "$HOME/agent-office/bin/agent-office.js" >/dev/null 2>&1 &)
+   ```
+
+   A second copy notices the port is taken and exits, so a new terminal doesn't start a duplicate. On Windows, put a shortcut to `node "%USERPROFILE%\agent-office\bin\agent-office.js"` in the Startup folder (`shell:startup`).
+
+8. **Tell the user** to open <http://localhost:4517> in their browser. From WSL this works in the Windows browser too.
+
+**Update:** `git -C ~/agent-office pull`, stop the office with `pkill -f 'agent-office/bin/[a]gent-office.js'` (the brackets keep `pkill` from matching the shell that runs it), then start it again as in step 4. Run `hooks install` again only if the folder, the Node version or the port changed.
+
+**Uninstall:** `node ~/agent-office/bin/agent-office.js hooks remove`, remove the autostart line, stop the process and delete `~/agent-office`.
+
+## Install by hand
 
 You need [Node.js](https://nodejs.org) 22 or newer. There are no other dependencies.
 
 ```sh
-git clone <this repo> agent-office
+git clone https://github.com/KitsuNekoni/agent-office.git
 cd agent-office
 npm start                 # open http://localhost:4517
 ```
