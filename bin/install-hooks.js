@@ -16,7 +16,11 @@ const dry = process.argv.includes('--dry-run');
 const CLAUDE_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'PermissionRequest', 'Notification', 'Stop', 'StopFailure', 'SubagentStart', 'SubagentStop', 'SessionEnd'];
 const CURSOR_EVENTS = ['afterShellExecution', 'afterFileEdit', 'afterMCPExecution', 'stop'];
 
-const ours = (cmd) => typeof cmd === 'string' && cmd.includes(HOOK);
+// Pad met spaties of andere shell-tekens: tussen enkele aanhalingstekens. Gewone paden blijven zoals ze waren.
+const CMD = /^[\w@%+=:,./-]+$/.test(HOOK) ? HOOK : `'${HOOK.replace(/'/g, `'\\''`)}'`;
+// Eigen entries herkennen aan '.../bin/hook.sh claude|cursor', niet aan het volledige pad:
+// zo worden ook entries van een verplaatste of hernoemde repo opgeruimd.
+const ours = (cmd) => typeof cmd === 'string' && (cmd.includes(HOOK) || /[\\/]bin[\\/]hook\.sh'?\s+(claude|cursor)\s*$/.test(cmd));
 
 function readJson(file, fallback) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { if (e.code === 'ENOENT') return fallback; throw new Error(`${file} is geen geldige JSON; niets aangepast (${e.message})`); }
@@ -38,7 +42,7 @@ function claude() {
     hooks[ev] = (hooks[ev] || []).map((g) => ({ ...g, hooks: (g.hooks || []).filter((h) => !ours(h.command)) })).filter((g) => g.hooks.length);
     if (!hooks[ev].length) delete hooks[ev];
   }
-  if (!remove) for (const ev of CLAUDE_EVENTS) (hooks[ev] ||= []).push({ hooks: [{ type: 'command', command: `${HOOK} claude`, timeout: 3, async: true }] });
+  if (!remove) for (const ev of CLAUDE_EVENTS) (hooks[ev] ||= []).push({ hooks: [{ type: 'command', command: `${CMD} claude`, timeout: 3, async: true }] });
   if (Object.keys(hooks).length) s.hooks = hooks; else delete s.hooks;
   writeJson(file, s);
   console.log(`${remove ? 'Verwijderd uit' : 'Geïnstalleerd in'} ${file}`);
@@ -53,7 +57,7 @@ function cursor() {
     hooks[ev] = (hooks[ev] || []).filter((h) => !ours(h.command));
     if (!hooks[ev].length) delete hooks[ev];
   }
-  if (!remove) for (const ev of CURSOR_EVENTS) (hooks[ev] ||= []).push({ command: `${HOOK} cursor` });
+  if (!remove) for (const ev of CURSOR_EVENTS) (hooks[ev] ||= []).push({ command: `${CMD} cursor` });
   s.hooks = hooks;
   if (remove && !Object.keys(hooks).length && !fs.existsSync(file + '.agent-office.bak')) { if (!dry && fs.existsSync(file)) fs.unlinkSync(file); console.log(`Verwijderd: ${file}`); return; }
   writeJson(file, s);

@@ -192,3 +192,40 @@ test('hooks: Cursor via de Claude-hookroute wordt een Cursor-sessie, ook met een
   assert.equal(s.kind, 'idle');
   fs.rmSync(home, { recursive: true, force: true });
 });
+
+test('install-hooks: pad met spatie wordt gequote, oude entries van een verplaatste repo verdwijnen', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-inst-'));
+  const home = path.join(tmp, 'home');
+  const bin = path.join(tmp, 'My Projects', 'agent-office', 'bin');
+  fs.mkdirSync(bin, { recursive: true });
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  fs.mkdirSync(path.join(home, '.cursor'), { recursive: true });
+  for (const f of ['install-hooks.js', 'hook.sh']) fs.copyFileSync(new URL(`../bin/${f}`, import.meta.url), path.join(bin, f));
+  fs.chmodSync(path.join(bin, 'hook.sh'), 0o755);
+  const old = '/oud/pad/agent-office/bin/hook.sh';
+  fs.writeFileSync(path.join(home, '.claude', 'settings.json'), J({ hooks: { Stop: [{ hooks: [{ type: 'command', command: `${old} claude` }, { type: 'command', command: 'echo eigen' }] }] } }));
+  fs.writeFileSync(path.join(home, '.cursor', 'hooks.json'), J({ version: 1, hooks: { stop: [{ command: `${old} cursor` }] } }));
+  const run = (...a) => execFileSync(process.execPath, [path.join(bin, 'install-hooks.js'), ...a], { env: { ...process.env, HOME: home } });
+  const read = () => [JSON.parse(fs.readFileSync(path.join(home, '.claude', 'settings.json'), 'utf8')), JSON.parse(fs.readFileSync(path.join(home, '.cursor', 'hooks.json'), 'utf8'))];
+
+  run();
+  let [cl, cu] = read();
+  const cmds = cl.hooks.Stop.flatMap((g) => g.hooks.map((h) => h.command));
+  assert.ok(!cmds.some((c) => c.startsWith(old)), 'oude Claude-entry weg');
+  assert.ok(cmds.includes('echo eigen'), 'vreemde hook blijft');
+  const mine = cmds.find((c) => c.includes('My Projects'));
+  assert.equal(mine, `'${path.join(bin, 'hook.sh')}' claude`);
+  assert.deepEqual(cu.hooks.stop.map((h) => h.command), [`'${path.join(bin, 'hook.sh')}' cursor`]);
+  // het gequote commando draait echt via de shell (server staat uit: faalt stil, Cursor krijgt {})
+  assert.equal(execFileSync('sh', ['-c', cu.hooks.stop[0].command], { input: '{}', env: { ...process.env, AGENT_OFFICE_PORT: '1' } }).toString(), '{}\n');
+
+  run(); // nogmaals installeren: geen dubbele entries
+  [cl] = read();
+  assert.equal(cl.hooks.Stop.flatMap((g) => g.hooks).filter((h) => h.command.includes('hook.sh')).length, 1);
+
+  run('--remove');
+  [cl] = read();
+  assert.deepEqual(cl.hooks.Stop.flatMap((g) => g.hooks.map((h) => h.command)), ['echo eigen']);
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
